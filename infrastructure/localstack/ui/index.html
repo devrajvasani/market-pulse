@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MarketPulse · LocalStack</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 3rem auto; max-width: 40rem; color: #222; }
+      code { background: #f2f2f2; padding: 0.1rem 0.35rem; border-radius: 4px; }
+      a { color: #0b67c2; }
+    </style>
+  </head>
+  <body>
+    <h1>MarketPulse — local AWS (LocalStack)</h1>
+    <p>The emulator gateway is at <code>http://localhost:4566</code>.</p>
+    <p>
+      Readiness:
+      <a href="http://localhost:4566/_localstack/health">/_localstack/health</a>
+      — the needed services should show <code>running</code> / <code>available</code>.
+    </p>
+    <p>Use dummy credentials (<code>test</code> / <code>test</code>) only. See this folder's README.</p>
+  </body>
+</html>

@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (gitignored) and set your value before `terraform apply`.
+# Only `owner` is required; region/environment have sensible defaults.
+owner = "your-name"   # your identifier for the `owner` cost-allocation tag, e.g. devraj-vasani
+
+# region      = "us-east-1"
+# environment = "dev"

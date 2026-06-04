@@ -1,0 +1,46 @@
+# Pre-commit gate (Section L.6 / G / O.5): runs BEFORE every commit so lint,
+# critical tests, and secret scanning catch problems before they reach GitHub.
+#   one-time:  uv run pre-commit install
+#   manual:    uv run pre-commit run --all-files
+minimum_pre_commit_version: "3.7.0"
+
+repos:
+  # Generic hygiene + a private-key guard (stable upstream hooks).
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files     # block accidental large data files (Section M.5)
+        args: ["--maxkb=1024"]
+      - id: detect-private-key
+
+  # Project tools run from the uv env so hook versions ALWAYS match pyproject.toml
+  # (no CLI/hook skew). lint + format + secret scan + critical tests.
+  - repo: local
+    hooks:
+      - id: ruff-lint
+        name: ruff (lint)
+        entry: uv run ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: ruff (format)
+        entry: uv run ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: detect-secrets
+        name: detect-secrets
+        entry: uv run detect-secrets-hook --baseline .secrets.baseline
+        language: system
+      - id: pytest-critical
+        name: pytest (critical tests)
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        always_run: true
