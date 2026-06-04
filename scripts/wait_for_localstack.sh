@@ -2,6 +2,10 @@
 # Readiness gate for LocalStack — "container up" is NOT "services ready" (file 04 section 4.4).
 # Polls the health endpoint and confirms the required services report running/available.
 # Exits 0 when ready; non-zero with a clear, actionable message otherwise.
+#
+# Pure curl + grep: no Python/jq dependency, so it behaves identically on Git Bash
+# (Windows), macOS, and Linux CI. (An earlier version trusted any `python` on PATH and
+# was fooled by the Windows Store python stub — hence grep-only here.)
 set -euo pipefail
 
 ENDPOINT="${AWS_ENDPOINT_URL:-http://localhost:4566}"
@@ -18,26 +22,9 @@ fail() {
 
 command -v curl >/dev/null 2>&1 || fail "curl is required but not installed."
 
-if command -v python3 >/dev/null 2>&1; then
-  PY=python3
-elif command -v python >/dev/null 2>&1; then
-  PY=python
-else
-  PY=""
-fi
-
-# is_ready <health-json> <service-name> — true when status is running/available.
+# is_ready <health-json> <service-name> — true when the service status is running/available.
 is_ready() {
-  if [ -n "${PY}" ]; then
-    HEALTH_JSON="$1" SVC="$2" "${PY}" -c '
-import json, os, sys
-data = json.loads(os.environ.get("HEALTH_JSON") or "{}")
-status = (data.get("services") or {}).get(os.environ["SVC"], "")
-sys.exit(0 if status in ("running", "available") else 1)
-'
-  else
-    printf '%s' "$1" | grep -Eq "\"$2\"[[:space:]]*:[[:space:]]*\"(running|available)\""
-  fi
+  printf '%s' "$1" | grep -Eq "\"$2\"[[:space:]]*:[[:space:]]*\"(running|available)\""
 }
 
 echo "Waiting for LocalStack at ${HEALTH_URL} (need: ${REQUIRED_SERVICES[*]})..."
