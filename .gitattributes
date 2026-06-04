@@ -1,0 +1,17 @@
+# Normalize line endings so the repo is consistent across Windows/Linux and CI.
+# Text files are stored LF in the repo; shell scripts MUST stay LF (bash/CI break on CRLF).
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.py   text eol=lf
+*.tf   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+Makefile text eol=lf
+
+# Binary assets — never normalize.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary

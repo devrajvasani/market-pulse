@@ -1,0 +1,16 @@
+# CD — PLACEHOLDER. The real deploy pipeline is built in Stage 7 (plan Section G):
+# `terraform apply` on merge to `main`, GATED by a manual GitHub approval
+# (environment protection) so a human is always in the loop (Section N).
+# Until then this is manual-only and does nothing — no AWS deploy is wired.
+name: Deploy (placeholder)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  noop:
+    name: Not yet implemented
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notice
+        run: echo "CD is implemented in Stage 7 — terraform apply behind a manual approval gate."

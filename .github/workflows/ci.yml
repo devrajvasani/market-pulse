@@ -1,0 +1,34 @@
+# CI — lint + critical tests on every push/PR (plan Section G / L.6).
+# Gives `main` branch protection a required status check. The full CI
+# (LocalStack integration tests + `terraform plan`) is added in Stage 7.
+name: CI
+
+on:
+  push:
+    branches: [develop, "feature/**", "fix/**", "release/**"]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint-test:
+    name: Lint + critical tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Critical tests
+        run: uv run pytest
