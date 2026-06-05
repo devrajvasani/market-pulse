@@ -133,3 +133,18 @@ def test_main_invokes_run_ingestion(monkeypatch):
     )
     ingest.main()
     assert called["summary"]["rows"] == 2
+
+
+def test_fetch_markets_fails_fast_on_4xx(monkeypatch):
+    import urllib.error
+
+    calls = {"n": 0}
+
+    def _raise_401(*a, **k):
+        calls["n"] += 1
+        raise urllib.error.HTTPError("http://x", 401, "Unauthorized", {}, None)
+
+    monkeypatch.setattr("src.ingestion.batch.coingecko.urllib.request.urlopen", _raise_401)
+    with pytest.raises(IngestionError):
+        CoinGeckoClient("CG-test").fetch_markets(["bitcoin"])
+    assert calls["n"] == 1  # client error -> no retry

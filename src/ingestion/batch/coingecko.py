@@ -53,7 +53,8 @@ class CoinGeckoClient:
             The parsed JSON body.
 
         Raises:
-            IngestionError: on a network/HTTP error after ``_MAX_ATTEMPTS`` attempts.
+            IngestionError: immediately on a non-retryable HTTP 4xx (bad key/params), else
+                after ``_MAX_ATTEMPTS`` attempts on transient (429 / 5xx / network) errors.
         """
         url = f"{self._base_url}{path}?{urllib.parse.urlencode(params)}"
         request = urllib.request.Request(
@@ -64,15 +65,21 @@ class CoinGeckoClient:
             try:
                 with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as resp:
                     return json.loads(resp.read())
+            except urllib.error.HTTPError as exc:
+                # Client errors (bad key / params) won't fix themselves — fail fast.
+                # Only 429 (rate limit) and 5xx are worth retrying.
+                if exc.code != 429 and exc.code < 500:
+                    raise IngestionError(f"CoinGecko returned HTTP {exc.code} for {path}") from exc
+                last_error = exc
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
                 last_error = exc
-                if attempt < _MAX_ATTEMPTS:
-                    backoff = _BACKOFF_BASE_SECONDS * 2 ** (attempt - 1)
-                    logger.warning(
-                        "CoinGecko request failed; retrying",
-                        extra={"attempt": attempt, "backoff_s": backoff},
-                    )
-                    time.sleep(backoff)
+            if attempt < _MAX_ATTEMPTS:
+                backoff = _BACKOFF_BASE_SECONDS * 2 ** (attempt - 1)
+                logger.warning(
+                    "CoinGecko request failed; retrying",
+                    extra={"attempt": attempt, "backoff_s": backoff},
+                )
+                time.sleep(backoff)
         msg = f"CoinGecko request failed after {_MAX_ATTEMPTS} attempts: {last_error}"
         raise IngestionError(msg)
 
