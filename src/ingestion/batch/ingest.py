@@ -128,3 +128,17 @@ def run_ingestion(
     summary = {"rows": int(len(frame)), "bucket": bucket, "partition": partition, "coins": coins}
     logger.info("Wrote prices to Bronze", extra=summary)
     return summary
+
+
+def main() -> None:
+    """Run one batch ingestion from the CLI (local/dev use).
+
+    Reads all configuration from the environment (APP_ENV, BRONZE_BUCKET,
+    AWS_ENDPOINT_URL, MARKETDATA_API_KEY). Used by ``make run-local``.
+    """
+    summary = run_ingestion()
+    logger.info("Batch ingestion complete", extra=summary)
+
+
+if __name__ == "__main__":
+    main()

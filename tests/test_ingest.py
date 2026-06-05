@@ -122,3 +122,14 @@ def test_run_ingestion_writes_with_overwrite_partitions(monkeypatch):
     assert captured["mode"] == "overwrite_partitions"
     assert captured["partition_cols"] == ["dt"]
     assert captured["path"] == "s3://marketpulse-dev-bucket-bronze-test/prices/"
+
+
+# ── CLI entry ─────────────────────────────────────────────────────────────────
+def test_main_invokes_run_ingestion(monkeypatch):
+    called: dict = {}
+    monkeypatch.setattr(
+        "src.ingestion.batch.ingest.run_ingestion",
+        lambda: called.setdefault("summary", {"rows": 2}),
+    )
+    ingest.main()
+    assert called["summary"]["rows"] == 2

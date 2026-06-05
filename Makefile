@@ -36,8 +36,8 @@ wait-localstack:  ## Block until LocalStack is healthy (readiness gate)
 deploy-local: localstack-up wait-localstack  ## Bring up the local stack and confirm it's ready
 	@echo "Local stack ready at http://localhost:4566"
 
-run-local:  ## Run a pipeline locally (wired up from Stage 1 onward)
-	@echo "run-local: implemented from Stage 1 onward."
+run-local:  ## Run the batch ingestion locally (needs APP_ENV=local + BRONZE_BUCKET from tflocal output)
+	uv run python -m src.ingestion.batch.ingest
 
 tf-fmt:  ## Check Terraform formatting
 	terraform -chdir=infra fmt -check -recursive

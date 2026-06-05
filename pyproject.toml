@@ -21,6 +21,7 @@ dev = [
     "ruff>=0.6",
     "pre-commit>=3.7",
     "detect-secrets>=1.5",           # secret scanner for the pre-commit hook (Section O.5)
+    "terraform-local>=0.18",         # tflocal: apply Terraform to LocalStack for free (iac-terraform)
 ]
 
 # This is an application, not a distributable library — uv should manage the env, not build a wheel.
