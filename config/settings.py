@@ -1,16 +1,21 @@
 """Application settings and backend selection - the portability core (Section B).
 
-Reads environment variables (loaded from ``config/environments/*.env``) and
-returns the active backend implementation. Switching cloud <-> local means
-changing ``APP_ENV`` and loading a different ``.env`` - never a logic rewrite.
+On import it auto-loads env files (root ``.env`` for gitignored local secrets,
+then ``config/environments/<APP_ENV>.env`` for committed non-secret config)
+without overriding anything already set in the real environment. It then
+returns the active backend implementation; switching cloud <-> local is just
+changing ``APP_ENV`` - never a logic rewrite.
 
-Env is read at call time (not import time) so a process can switch targets and
+Values are read at call time (not cached) so a process can switch targets and
 so tests can set ``APP_ENV`` per case.
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from src.backends.llm_client import LLMClient
 from src.backends.query_engine import QueryEngine
@@ -18,6 +23,23 @@ from src.common.errors import ConfigError
 
 PROJECT = "marketpulse"
 _VALID_APP_ENVS = ("aws", "local")
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _load_env_files() -> None:
+    """Load env files into ``os.environ`` once, at import.
+
+    Precedence (highest first): the real shell/OS environment > root ``.env``
+    (gitignored local secrets + overrides) > ``config/environments/<APP_ENV>.env``
+    (committed, non-secret mode config). ``override=False`` so an already-set
+    variable (shell, CI, Lambda) always wins; missing files are ignored.
+    """
+    load_dotenv(_REPO_ROOT / ".env", override=False)
+    env = (os.getenv("APP_ENV") or "").strip().lower() or "local"
+    load_dotenv(_REPO_ROOT / "config" / "environments" / f"{env}.env", override=False)
+
+
+_load_env_files()
 
 
 def active_env() -> str:
@@ -29,7 +51,7 @@ def active_env() -> str:
     Raises:
         ConfigError: If ``APP_ENV`` is set to an unsupported value.
     """
-    env = os.getenv("APP_ENV", "local").lower()
+    env = (os.getenv("APP_ENV") or "").strip().lower() or "local"
     if env not in _VALID_APP_ENVS:
         raise ConfigError(f"APP_ENV must be one of {list(_VALID_APP_ENVS)}, got {env!r}.")
     return env
@@ -37,17 +59,17 @@ def active_env() -> str:
 
 def environment() -> str:
     """Return the resource-environment slug used in names + tags (default ``"dev"``)."""
-    return os.getenv("ENVIRONMENT", "dev")
+    return (os.getenv("ENVIRONMENT") or "").strip() or "dev"
 
 
 def aws_region() -> str:
     """Return the AWS region (default ``"us-east-1"``)."""
-    return os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+    return (os.getenv("AWS_DEFAULT_REGION") or "").strip() or "us-east-1"
 
 
 def aws_endpoint_url() -> str | None:
     """Return the AWS endpoint override (LocalStack) when set, else ``None``."""
-    return os.getenv("AWS_ENDPOINT_URL")
+    return (os.getenv("AWS_ENDPOINT_URL") or "").strip() or None
 
 
 def bucket_name(layer: str) -> str:

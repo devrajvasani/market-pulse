@@ -27,6 +27,13 @@ def test_active_env_rejects_invalid_value(monkeypatch):
         settings.active_env()
 
 
+def test_active_env_treats_empty_as_default(monkeypatch):
+    # An empty value (e.g. a stray `APP_ENV=` in .env) must fall back to the default,
+    # not become "" and break — this is why .env.example can show empty keys safely.
+    monkeypatch.setenv("APP_ENV", "")
+    assert settings.active_env() == "local"
+
+
 def test_environment_defaults_to_dev(monkeypatch):
     monkeypatch.delenv("ENVIRONMENT", raising=False)
     assert settings.environment() == "dev"
@@ -41,3 +48,12 @@ def test_bucket_name_follows_naming_standard(monkeypatch):
 def test_aws_region_defaults_to_us_east_1(monkeypatch):
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
     assert settings.aws_region() == "us-east-1"
+
+
+def test_env_files_autoload_local_mode(monkeypatch):
+    """Auto-load reads config/environments/local.env (LocalStack endpoint) by default."""
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.delenv("AWS_ENDPOINT_URL", raising=False)
+    settings._load_env_files()  # idempotent re-load; defaults to the local mode file
+    assert settings.active_env() == "local"
+    assert settings.aws_endpoint_url() == "http://localhost:4566"
