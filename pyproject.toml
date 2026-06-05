@@ -9,6 +9,8 @@ dependencies = [
     "boto3>=1.34",        # AWS SDK — respects AWS_ENDPOINT_URL for LocalStack (Group A services)
     "duckdb>=1.0",        # local query engine — the Athena adapter target (Section B)
     "python-dotenv>=1.0", # auto-load .env + config/environments/*.env (config/settings.py)
+    "awswrangler>=3.9",   # partitioned Parquet -> S3 (idempotent overwrite_partitions); pandas+pyarrow
+    #                       on Lambda this comes from the AWS SDK for pandas layer, not the zip
 ]
 
 # Dev/test tooling. Installed via `uv sync` into the project venv; used by `make test` and CI.
@@ -19,6 +21,7 @@ dev = [
     "ruff>=0.6",
     "pre-commit>=3.7",
     "detect-secrets>=1.5",           # secret scanner for the pre-commit hook (Section O.5)
+    "terraform-local>=0.18",         # tflocal: apply Terraform to LocalStack for free (iac-terraform)
 ]
 
 # This is an application, not a distributable library — uv should manage the env, not build a wheel.

@@ -7,12 +7,19 @@ A new developer needs only Docker — no global install.
 ## Run it
 ```bash
 cd infrastructure/localstack
-docker compose up -d     # start LocalStack + the static dashboard UI
+docker compose up -d     # start LocalStack + the console dashboard (first run builds ./ui)
 docker compose ps        # localstack should report "healthy"
 docker compose down      # stop
 ```
 - Gateway: `http://localhost:4566`
-- Dashboard: `http://localhost:8080`
+- **Console:** `http://localhost:8080`
+
+## Console (read-only dashboard)
+A small AWS-console-like dashboard (`./ui` — a Flask + boto3 container) that queries LocalStack
+**server-side** (so the browser never deals with SigV4/CORS) and shows live state: **service
+health**, **S3 buckets + their objects**, **Lambda** functions, **EventBridge** rules, **KMS**
+keys, **Secrets Manager** (names only — values are **never** read), plus SQS / SNS / Step Functions
+/ Kinesis / CloudWatch Logs / IAM. Auto-refreshes every 10 s. **Read-only and dev-only.**
 
 ## Credentials (dummy — NEVER real)
 Local code/CLI use placeholder creds. Never point real AWS keys at the emulator

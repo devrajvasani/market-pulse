@@ -236,12 +236,18 @@ override.tf.json
 *.tfvars.json
 !*.tfvars.example
 
+# Partial backend config carries the account-specific state bucket — ignore, keep the example
+infra/backend.hcl
+
 # AWS credentials — real keys live in ~/.aws only, never in the repo (Section O.2)
 .aws/
 **/.aws/
 
 # LocalStack runtime state — never commit (file 04 §4.5)
 infrastructure/localstack/volume/
+
+# Terraform Lambda build artifacts (staged package + zip)
+infra/build/
 
 # detect-secrets audit log (the .secrets.baseline file itself IS committed)
 .secrets.baseline.tmp

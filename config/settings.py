@@ -15,7 +15,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:  # not installed on Lambda; there env vars are set directly, no .env files
+    load_dotenv = None  # type: ignore[assignment]
 
 from src.backends.llm_client import LLMClient
 from src.backends.query_engine import QueryEngine
@@ -34,6 +37,8 @@ def _load_env_files() -> None:
     (committed, non-secret mode config). ``override=False`` so an already-set
     variable (shell, CI, Lambda) always wins; missing files are ignored.
     """
+    if load_dotenv is None:
+        return  # e.g. on Lambda: no .env files; env vars are provided directly
     load_dotenv(_REPO_ROOT / ".env", override=False)
     env = (os.getenv("APP_ENV") or "").strip().lower() or "local"
     load_dotenv(_REPO_ROOT / "config" / "environments" / f"{env}.env", override=False)
@@ -82,6 +87,31 @@ def bucket_name(layer: str) -> str:
         e.g. ``"marketpulse-dev-bucket-bronze"``.
     """
     return f"{PROJECT}-{environment()}-bucket-{layer}"
+
+
+def bronze_bucket() -> str:
+    """Return the Bronze bucket name.
+
+    Terraform sets ``BRONZE_BUCKET`` on the Lambda (real bucket names carry a unique
+    suffix). For local runs, export it from ``terraform output``.
+
+    Raises:
+        ConfigError: if ``BRONZE_BUCKET`` is not set.
+    """
+    name = (os.getenv("BRONZE_BUCKET") or "").strip()
+    if not name:
+        raise ConfigError(
+            "BRONZE_BUCKET is not set. Terraform sets it on the Lambda; "
+            "for local runs export it from `terraform output`."
+        )
+    return name
+
+
+def marketdata_secret_name() -> str:
+    """Return the market-data API-key secret name (deterministic; env-overridable)."""
+    return (os.getenv("MARKETDATA_SECRET_NAME") or "").strip() or (
+        f"{PROJECT}-{environment()}-secret-marketdata-apikey"
+    )
 
 
 def get_query_engine() -> QueryEngine:

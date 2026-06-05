@@ -3,6 +3,11 @@
 #   health: curl http://localhost:4566/_localstack/health   (file 04 section 4.4)
 # Glue & Athena are LocalStack Pro-only -> MarketPulse uses DuckDB + PySpark
 # locally instead (the backend-adapter pattern, plan Section B / file 04 section 4.3).
+
+# Explicit Compose project name -> Docker groups these as "marketpulse-localstack" instead of the
+# folder-derived default "localstack" (which could collide with other LocalStack projects).
+name: marketpulse-localstack
+
 services:
   localstack:
     container_name: marketpulse-localstack
@@ -14,7 +19,7 @@ services:
       - "4566:4566"        # single gateway endpoint for every emulated service
     environment:
       # Only the Community (free) services MarketPulse actually uses (file 04 section 4.3).
-      SERVICES: "s3,kinesis,lambda,sqs,sns,events,stepfunctions,secretsmanager,logs,iam,sts"
+      SERVICES: "s3,kinesis,lambda,sqs,sns,events,stepfunctions,secretsmanager,kms,logs,iam,sts"
       DEBUG: "0"           # set to 1 temporarily for verbose logs when troubleshooting
       AWS_DEFAULT_REGION: "us-east-1"
       # OPTIONAL on the pinned 3.x image (runs token-free). Required only if you bump the image
@@ -33,14 +38,19 @@ services:
       retries: 12
       start_period: 20s
 
-  # Minimal static dashboard, started only once LocalStack is HEALTHY (not merely up).
+  # MarketPulse console — a small READ-ONLY boto3 dashboard (service health, S3 + objects, Lambda,
+  # secrets/KMS/EventBridge, ...). Built from ./ui; started only once LocalStack is HEALTHY.
   ui:
     container_name: marketpulse-localstack-ui
-    image: nginx:alpine
+    build: ./ui
     ports:
-      - "8080:80"
-    volumes:
-      - "./ui:/usr/share/nginx/html:ro"
+      - "8080:8080"
+    environment:
+      AWS_ACCESS_KEY_ID: "test"
+      AWS_SECRET_ACCESS_KEY: "test" # pragma: allowlist secret -- dummy; LocalStack ignores creds
+      AWS_DEFAULT_REGION: "us-east-1"
+      LOCALSTACK_ENDPOINT: "http://localstack:4566" # the localstack service on the compose network
     depends_on:
       localstack:
         condition: service_healthy
+    restart: unless-stopped
