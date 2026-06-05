@@ -3,6 +3,12 @@
 # Local mode runs this via `tflocal`, which overrides the AWS endpoints to LocalStack.
 terraform {
   required_version = ">= 1.6"
+
+  # Remote state on S3 + DynamoDB lock (created by infra/bootstrap). Partial config — the
+  # bucket / key / region / lock values live in infra/backend.hcl (gitignored):
+  #   terraform init -backend-config=backend.hcl
+  backend "s3" {}
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"

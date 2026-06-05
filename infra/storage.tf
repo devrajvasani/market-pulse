@@ -21,6 +21,7 @@ module "s3" {
   source   = "./modules/s3"
   for_each = toset(local.layers)
 
-  bucket_name = "${local.name_prefix}-bucket-${each.key}-${random_id.bucket_suffix.hex}"
-  kms_key_arn = module.kms.key_arn
+  bucket_name   = "${local.name_prefix}-bucket-${each.key}-${random_id.bucket_suffix.hex}"
+  kms_key_arn   = module.kms.key_arn
+  force_destroy = true # dev: clean `terraform destroy` (data is re-ingestible). See modules/s3.
 }

@@ -236,6 +236,9 @@ override.tf.json
 *.tfvars.json
 !*.tfvars.example
 
+# Partial backend config carries the account-specific state bucket — ignore, keep the example
+infra/backend.hcl
+
 # AWS credentials — real keys live in ~/.aws only, never in the repo (Section O.2)
 .aws/
 **/.aws/

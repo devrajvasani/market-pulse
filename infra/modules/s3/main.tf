@@ -1,6 +1,7 @@
 # One medallion-lake bucket. Called once per layer (bronze / silver / gold).
 resource "aws_s3_bucket" "this" {
-  bucket = var.bucket_name
+  bucket        = var.bucket_name
+  force_destroy = var.force_destroy
 }
 
 # Block ALL public access — lake buckets are private (defence in depth).

@@ -1,0 +1,8 @@
+# Remote-state backend config for the MAIN infra/ stack (partial backend configuration).
+# Copy to infra/backend.hcl (gitignored), fill `bucket` from the bootstrap output, then:
+#   terraform -chdir=infra init -backend-config=backend.hcl
+bucket         = "marketpulse-dev-tfstate-<YOUR_ACCOUNT_ID>"
+key            = "stage1/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "marketpulse-dev-tflock"
+encrypt        = true
