@@ -31,9 +31,9 @@ variable "runtime" {
 }
 
 variable "timeout_seconds" {
-  description = "Function timeout."
+  description = "Function timeout (generous for cold start + awswrangler import + Secrets Manager + CoinGecko retries + S3 write)."
   type        = number
-  default     = 60
+  default     = 120
 }
 
 variable "memory_mb" {

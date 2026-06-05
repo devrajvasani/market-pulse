@@ -5,10 +5,11 @@ resource "aws_cloudwatch_event_rule" "this" {
   schedule_expression = var.schedule_expression
 }
 
-# Point the rule at the Lambda.
+# Point the rule at the Lambda. Explicit target_id keeps the target stable/idempotent across plans.
 resource "aws_cloudwatch_event_target" "this" {
-  rule = aws_cloudwatch_event_rule.this.name
-  arn  = var.target_lambda_arn
+  rule      = aws_cloudwatch_event_rule.this.name
+  target_id = "${var.name}-target"
+  arn       = var.target_lambda_arn
 }
 
 # Allow EventBridge to invoke the Lambda (scoped to this rule).

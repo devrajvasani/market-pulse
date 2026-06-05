@@ -168,11 +168,12 @@ builds (resources), what it hands back (outputs).
 | ------------------------------------------------------------------------------------------- | ----------------------------- |
 | `name` · `function_name` · `bronze_bucket_arn` · `kms_key_arn` · `secret_arn` | `role_arn` · `role_name` |
 
-The inline policy has exactly **5 scoped statements**: `WriteBronzeObjects` (`s3:PutObject`/`DeleteObject`
-on `bronze/*`), `ListBronzeBucket` (`s3:ListBucket` on the bucket), `UseCmkForS3`
-(`kms:GenerateDataKey`/`Encrypt`/`DescribeKey` on the CMK), `ReadApiKeySecret`
+The inline policy has exactly **5 scoped statements**: `ReadWriteBronzeObjects` (`s3:PutObject`/`GetObject`/`DeleteObject`
+on `bronze/*`), `ListBronzeBucket` (`s3:ListBucket`/`GetBucketLocation` on the bucket), `UseCmkForLakeIO`
+(`kms:GenerateDataKey`/`Encrypt`/`Decrypt`/`DescribeKey` on the CMK), `ReadApiKeySecret`
 (`secretsmanager:GetSecretValue` on the one secret), `WriteOwnLogs` (`logs:*` scoped to the
-function's own log group). No wildcards.
+function's own log group). No wildcards. The `GetObject`/`GetBucketLocation` reads and `kms:Decrypt`
+are required by awswrangler and to read the KMS-encrypted secret on real AWS.
 
 ### 5.6 `lambda`
 
