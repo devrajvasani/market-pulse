@@ -88,6 +88,77 @@ terraform apply                                  # 4. deploy for real
 - `APP_ENV=aws` → `aws.env` → real AWS, no override, Athena/Bedrock adapters.
 - The **deployed Lambda** sets neither — running *inside* AWS it natively uses real endpoints, its IAM-role creds, and reads the key from Secrets Manager.
 
+### The complete procedure (exactly as performed in Stage 1)
+
+**A · Run on LocalStack** — free, repeatable, no creds:
+```powershell
+# 1. ENABLE LocalStack
+docker compose -f infrastructure/localstack/docker-compose.yml up -d
+bash scripts/wait_for_localstack.sh                       # gate until S3 is ready
+
+# 2. PROVISION (create / update / destroy all use these same commands)
+cd infra
+uv run tflocal init
+uv run tflocal plan                                       # +23 to add  (or ~ N to change on an edit)
+uv run tflocal apply                                      # yes
+
+# 3. RUN the ingestion against LocalStack
+$env:BRONZE_BUCKET = (uv run tflocal output -json bucket_names | ConvertFrom-Json).bronze
+$env:APP_ENV = "local"
+cd ..
+uv run python -m src.ingestion.batch.ingest               # -> Parquet in LocalStack bronze
+
+# 4. VERIFY
+uv run python -c "import os,boto3; from config import settings; c=boto3.client('s3',endpoint_url=settings.aws_endpoint_url(),region_name=settings.aws_region()); print('\n'.join(o['Key'] for o in c.list_objects_v2(Bucket=os.environ['BRONZE_BUCKET']).get('Contents',[])))"
+
+# 5. TEAR DOWN (free) + DISABLE
+cd infra; uv run tflocal destroy                          # yes  (force_destroy empties bronze)
+docker compose -f infrastructure/localstack/docker-compose.yml down
+```
+
+**B · Deploy + run on live AWS** — one-time setup, then deploy:
+```powershell
+# 1. CREDS (once): create an access key for the marketpulse-admin IAM user, then put it in
+#    ~/.aws/credentials ([marketpulse-admin]) + ~/.aws/config ([profile marketpulse-admin]).
+$env:AWS_PROFILE = "marketpulse-admin"
+uv run python -c "import boto3; print(boto3.client('sts',region_name='us-east-1').get_caller_identity())"   # expect the real 12-digit account
+
+# 2. BOOTSTRAP the remote state backend (once) — creates the S3 state bucket + DynamoDB lock
+cd infra/bootstrap
+terraform init
+terraform apply -var="owner=devraj-vasani"                # yes  -> state_bucket + lock_table
+terraform output
+
+# 3. WIRE infra/ to that backend (done in Stage 1: backend "s3" {} in main.tf + values in backend.hcl)
+cd ..
+terraform init -reconfigure "-backend-config=backend.hcl"  # state now lives in S3
+
+# 4. DEPLOY
+terraform plan                                            # review: +23, real ARNs, force_destroy, layer ARN
+terraform apply                                           # yes
+
+# 5. SET THE SECRET out-of-band (reads the CoinGecko key from .env -> Secrets Manager; nothing typed)
+cd ..
+uv run python -c "import boto3,json,os; from dotenv import load_dotenv; load_dotenv(); boto3.client('secretsmanager',region_name='us-east-1').put_secret_value(SecretId='marketpulse-dev-secret-marketdata-apikey', SecretString=json.dumps({'api_key':os.environ['MARKETDATA_API_KEY']}))"
+
+# 6. VERIFY on real AWS — invoke the Lambda, then list bronze
+uv run python -c "import boto3; r=boto3.client('lambda',region_name='us-east-1').invoke(FunctionName='marketpulse-dev-lambda-batch-ingest'); print(r['StatusCode']); print(r['Payload'].read().decode())"
+uv run python -c "import boto3; c=boto3.client('s3',region_name='us-east-1'); print('\n'.join(o['Key'] for o in c.list_objects_v2(Bucket='marketpulse-dev-bucket-bronze-65fa4d26').get('Contents',[])))"
+
+# 7. TEAR DOWN before credits expire (June 18) — one command thanks to force_destroy
+cd infra; terraform destroy                               # yes
+```
+
+**C · The switch we performed (local ➜ cloud)** — because `tflocal` and `terraform` share the local `terraform.tfstate`, we separated their state:
+```powershell
+cd infra
+uv run tflocal destroy                          # 1. tear down LocalStack + clear local state
+# 2. add backend "s3" {} to main.tf, create backend.hcl from the bootstrap output
+terraform init -reconfigure "-backend-config=backend.hcl"   # 3. AWS now reads/writes S3 state
+terraform apply                                 # 4. deploy for real
+```
+> The first time, `init` may warn `Too many command line arguments` in PowerShell — quote it: `"-backend-config=backend.hcl"`. **Rule:** local = local state, AWS = S3 backend; never share one state file.
+
 ### When to use which
 
 | Use **LocalStack** when… | Use **live AWS** when… |
