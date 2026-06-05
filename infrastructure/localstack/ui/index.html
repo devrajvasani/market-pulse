@@ -3,21 +3,300 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MarketPulse · LocalStack</title>
+    <title>MarketPulse · LocalStack Console</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 3rem auto; max-width: 40rem; color: #222; }
-      code { background: #f2f2f2; padding: 0.1rem 0.35rem; border-radius: 4px; }
-      a { color: #0b67c2; }
+      :root {
+        --bg: #f2f3f3; --panel: #fff; --border: #d5dbdb; --ink: #16191f; --muted: #5f6b7a;
+        --accent: #ec7211; --green: #1d8102; --green-bg: #e8f5e9; --blue: #0972d3;
+        --blue-bg: #e9f2fb; --grey: #8d99a8; --grey-bg: #eef1f3; --red: #b3261e; --red-bg: #fdecea;
+        --mono: ui-monospace, Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink); font-size: 14px;
+        font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+      }
+      header {
+        background: #fff; border-bottom: 1px solid var(--border); border-top: 3px solid var(--accent);
+        padding: 0.7rem 1.2rem; position: sticky; top: 0; z-index: 5;
+      }
+      .bar { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+      h1 { font-size: 1.05rem; margin: 0; display: flex; align-items: center; gap: 0.5rem; }
+      .logo { width: 0.7rem; height: 1.25rem; background: var(--accent); border-radius: 2px; }
+      .meta {
+        color: var(--muted); font-size: 0.8rem; display: flex; gap: 0.9rem; flex-wrap: wrap;
+        margin-left: auto; align-items: center;
+      }
+      .meta b { color: var(--ink); font-family: var(--mono); }
+      button {
+        font: inherit; border: 1px solid var(--border); background: #fff; border-radius: 6px;
+        padding: 0.3rem 0.75rem; cursor: pointer;
+      }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      #status { color: var(--muted); font-size: 0.8rem; }
+      label.auto { font-size: 0.8rem; color: var(--muted); margin-left: auto; }
+      main { padding: 1.2rem; max-width: 1240px; margin: 0 auto; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 1rem; }
+      .full { grid-column: 1 / -1; }
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+      .card > .head {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0.55rem 0.85rem; border-bottom: 1px solid var(--border);
+      }
+      .head h2 {
+        font-size: 0.8rem; margin: 0; text-transform: uppercase; letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+      .count {
+        background: var(--grey-bg); color: var(--ink); border-radius: 999px;
+        padding: 0.05rem 0.55rem; font-weight: 600; font-size: 0.76rem;
+      }
+      .card .body { padding: 0.55rem 0.85rem 0.8rem; }
+      .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+      .chip {
+        border-radius: 999px; padding: 0.12rem 0.6rem; font-size: 0.74rem;
+        border: 1px solid transparent; font-family: var(--mono);
+      }
+      .chip.running, .chip.available { background: var(--green-bg); color: var(--green); }
+      .chip.disabled { background: var(--grey-bg); color: var(--grey); }
+      .chip.error { background: var(--red-bg); color: var(--red); }
+      table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+      th, td { text-align: left; padding: 0.3rem 0.4rem; border-bottom: 1px solid #eef1f1; vertical-align: top; }
+      th { color: var(--muted); font-weight: 600; }
+      .mono { font-family: var(--mono); font-size: 0.78rem; word-break: break-all; }
+      .empty { color: var(--muted); font-style: italic; padding: 0.3rem 0; }
+      ul.plain { margin: 0.2rem 0; padding-left: 1.05rem; }
+      ul.plain li { padding: 0.12rem 0; }
+      details { border: 1px solid var(--border); border-radius: 6px; margin: 0.4rem 0; padding: 0.15rem 0.6rem; }
+      summary { cursor: pointer; padding: 0.35rem 0; font-weight: 600; }
+      summary .count { font-weight: 600; margin-left: 0.3rem; }
+      .err { color: var(--red); }
+      .hint { color: var(--muted); font-size: 0.78rem; margin-bottom: 0.3rem; }
     </style>
   </head>
   <body>
-    <h1>MarketPulse — local AWS (LocalStack)</h1>
-    <p>The emulator gateway is at <code>http://localhost:4566</code>.</p>
-    <p>
-      Readiness:
-      <a href="http://localhost:4566/_localstack/health">/_localstack/health</a>
-      — the needed services should show <code>running</code> / <code>available</code>.
-    </p>
-    <p>Use dummy credentials (<code>test</code> / <code>test</code>) only. See this folder's README.</p>
+    <header>
+      <div class="bar">
+        <h1><span class="logo"></span> MarketPulse · LocalStack Console</h1>
+        <div class="meta" id="meta"></div>
+      </div>
+      <div class="bar" style="margin-top: 0.45rem">
+        <span id="status">loading…</span>
+        <label class="auto"><input type="checkbox" id="auto" /> auto-refresh (10s)</label>
+        <button class="primary" id="refresh">↻ Refresh</button>
+      </div>
+    </header>
+    <main id="app"></main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) =>
+        String(s ?? "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
+        );
+      const fmtSize = (n) => {
+        n = Number(n || 0);
+        if (n < 1024) return n + " B";
+        if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+        return (n / 1048576).toFixed(2) + " MB";
+      };
+      const fmtTime = (s) =>
+        s ? esc(String(s).replace("T", " ").replace(/\.\d+/, "").replace("+00:00", "Z")) : "—";
+      const mono = (s) => `<span class="mono">${esc(s)}</span>`;
+      const empty = () => `<div class="empty">none</div>`;
+      const list = (items) =>
+        `<ul class="plain">${items.map((i) => `<li>${i}</li>`).join("")}</ul>`;
+      const table = (cols, rows) =>
+        `<table><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${rows
+          .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
+          .join("")}</tbody></table>`;
+      const card = (title, count, body, full) =>
+        `<section class="card ${full ? "full" : ""}"><div class="head"><h2>${esc(
+          title
+        )}</h2><span class="count">${count}</span></div><div class="body">${body}</div></section>`;
+
+      let timer = null;
+
+      async function load() {
+        $("status").textContent = "refreshing…";
+        try {
+          const res = await fetch("/api/data");
+          const d = await res.json();
+          render(d);
+          $("status").textContent = "updated " + fmtTime(d.meta.generated_at);
+        } catch (e) {
+          $("status").innerHTML = `<span class="err">error: ${esc(e.message)}</span>`;
+        }
+      }
+
+      function render(d) {
+        $("meta").innerHTML = `
+          <span>endpoint <b>${esc(d.meta.endpoint)}</b></span>
+          <span>account <b>${esc(d.meta.account)}</b></span>
+          <span>region <b>${esc(d.meta.region)}</b></span>
+          <span>${esc(d.meta.edition || "")} <b>${esc(d.meta.version || "")}</b></span>`;
+
+        const panels = [];
+
+        // Service health grid
+        const svcs = d.health || {};
+        const names = Object.keys(svcs).sort();
+        const chips =
+          names.map((k) => `<span class="chip ${esc(svcs[k])}">${esc(k)}</span>`).join("") ||
+          `<span class="empty">no health data</span>`;
+        panels.push(card("Service health", names.length, `<div class="chips">${chips}</div>`, true));
+
+        // S3 (wide) — buckets with their objects
+        const s3 = d.s3 || [];
+        const s3Body = s3.length
+          ? s3
+              .map(
+                (b) => `<details ${b.objects.length ? "open" : ""}>
+                  <summary>${esc(b.name)}<span class="count">${b.objects.length} obj</span></summary>
+                  ${
+                    b.objects.length
+                      ? table(
+                          ["Key", "Size", "Modified"],
+                          b.objects.map((o) => [mono(o.key), fmtSize(o.size), fmtTime(o.modified)])
+                        )
+                      : `<div class="empty">empty bucket</div>`
+                  }
+                </details>`
+              )
+              .join("")
+          : empty();
+        panels.push(card("S3 buckets", s3.length, s3Body, true));
+
+        // Lambda
+        const lam = d.lambda || [];
+        panels.push(
+          card(
+            "Lambda functions",
+            lam.length,
+            lam.length
+              ? table(
+                  ["Name", "Runtime", "Mem", "Timeout", "Layers"],
+                  lam.map((f) => [
+                    mono(f.name),
+                    esc(f.runtime),
+                    esc(f.memory) + " MB",
+                    esc(f.timeout) + " s",
+                    esc(f.layers),
+                  ])
+                )
+              : empty()
+          )
+        );
+
+        // Secrets Manager (names only)
+        const sec = d.secrets || [];
+        panels.push(
+          card(
+            "Secrets Manager 🔒",
+            sec.length,
+            sec.length
+              ? `<div class="hint">names only — values are never read</div>` +
+                  list(sec.map((s) => mono(s.name)))
+              : empty()
+          )
+        );
+
+        // KMS keys + aliases
+        const kms = d.kms || [];
+        panels.push(
+          card(
+            "KMS keys",
+            kms.length,
+            kms.length
+              ? list(
+                  kms.map(
+                    (k) =>
+                      `${mono(k.id)} ${k.aliases
+                        .map((a) => `<span class="count">${esc(a)}</span>`)
+                        .join(" ")}`
+                  )
+                )
+              : empty()
+          )
+        );
+
+        // EventBridge rules
+        const ev = d.events || [];
+        panels.push(
+          card(
+            "EventBridge rules",
+            ev.length,
+            ev.length
+              ? table(
+                  ["Name", "Schedule", "State"],
+                  ev.map((r) => [mono(r.name), esc(r.schedule || "—"), esc(r.state || "")])
+                )
+              : empty()
+          )
+        );
+
+        // CloudWatch Logs
+        const lg = d.logs || [];
+        panels.push(
+          card(
+            "CloudWatch Logs",
+            lg.length,
+            lg.length
+              ? table(
+                  ["Log group", "Retention"],
+                  lg.map((g) => [mono(g.name), g.retention ? esc(g.retention) + " d" : "∞"])
+                )
+              : empty()
+          )
+        );
+
+        // Simple name-list services
+        const simple = [
+          ["SQS queues", "sqs"],
+          ["SNS topics", "sns"],
+          ["Step Functions", "stepfunctions"],
+          ["Kinesis streams", "kinesis"],
+          ["IAM roles", "iam"],
+        ];
+        for (const [title, key] of simple) {
+          const arr = d[key] || [];
+          panels.push(card(title, arr.length, arr.length ? list(arr.map((x) => mono(x))) : empty()));
+        }
+
+        // Errors / notes
+        const errs = d.errors || {};
+        const errKeys = Object.keys(errs);
+        if (errKeys.length) {
+          panels.push(
+            card(
+              "Notes",
+              errKeys.length,
+              list(errKeys.map((k) => `<b>${esc(k)}</b>: <span class="err">${esc(errs[k])}</span>`)),
+              true
+            )
+          );
+        }
+
+        $("app").innerHTML = `<div class="grid">${panels.join("")}</div>`;
+      }
+
+      function setAuto(on) {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+        if (on) timer = setInterval(load, 10000);
+        localStorage.setItem("ls-auto", on ? "1" : "0");
+      }
+
+      window.addEventListener("DOMContentLoaded", () => {
+        $("refresh").onclick = load;
+        const auto = localStorage.getItem("ls-auto") !== "0";
+        $("auto").checked = auto;
+        setAuto(auto);
+        $("auto").onchange = (e) => setAuto(e.target.checked);
+        load();
+      });
+    </script>
   </body>
 </html>
