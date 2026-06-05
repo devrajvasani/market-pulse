@@ -2,6 +2,7 @@
 
 > Seeded in Stage 0; the diagram and full decision log are finalised in Stage 8.
 > High-level overview: `docs/plan/01_PROJECT_PLAN_HIGH_LEVEL.md`.
+> Infrastructure-as-Code deep-dive (modules, wiring, diagrams): [terraform-architecture.md](terraform-architecture.md).
 
 ## Data flow (medallion lakehouse)
 ```
