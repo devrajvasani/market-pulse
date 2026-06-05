@@ -84,6 +84,31 @@ def bucket_name(layer: str) -> str:
     return f"{PROJECT}-{environment()}-bucket-{layer}"
 
 
+def bronze_bucket() -> str:
+    """Return the Bronze bucket name.
+
+    Terraform sets ``BRONZE_BUCKET`` on the Lambda (real bucket names carry a unique
+    suffix). For local runs, export it from ``terraform output``.
+
+    Raises:
+        ConfigError: if ``BRONZE_BUCKET`` is not set.
+    """
+    name = (os.getenv("BRONZE_BUCKET") or "").strip()
+    if not name:
+        raise ConfigError(
+            "BRONZE_BUCKET is not set. Terraform sets it on the Lambda; "
+            "for local runs export it from `terraform output`."
+        )
+    return name
+
+
+def marketdata_secret_name() -> str:
+    """Return the market-data API-key secret name (deterministic; env-overridable)."""
+    return (os.getenv("MARKETDATA_SECRET_NAME") or "").strip() or (
+        f"{PROJECT}-{environment()}-secret-marketdata-apikey"
+    )
+
+
 def get_query_engine() -> QueryEngine:
     """Return the active QueryEngine backend (Athena on ``aws``, DuckDB on ``local``)."""
     if active_env() == "aws":
