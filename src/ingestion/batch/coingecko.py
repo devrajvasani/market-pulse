@@ -84,7 +84,7 @@ class CoinGeckoClient:
         raise IngestionError(msg)
 
     def fetch_markets(self, coin_ids: list[str], vs_currency: str = "usd") -> list[dict]:
-        """Fetch current market data (price, volume, market cap, 24h change) per coin.
+        """Fetch current market data (price, volume, cap, supply, ATH, 1h/24h/7d moves) per coin.
 
         Args:
             coin_ids: CoinGecko coin IDs, e.g. ``["bitcoin", "ethereum"]``.
@@ -99,7 +99,9 @@ class CoinGeckoClient:
         params = {
             "vs_currency": vs_currency,
             "ids": ",".join(coin_ids),
-            "price_change_percentage": "24h",
+            # Request 1h/24h/7d percent moves -> adds price_change_percentage_{1h,7d}_in_currency
+            # (24h is also always returned as the base price_change_percentage_24h field).
+            "price_change_percentage": "1h,24h,7d",
         }
         logger.info(
             "Fetching CoinGecko markets", extra={"coins": coin_ids, "vs_currency": vs_currency}

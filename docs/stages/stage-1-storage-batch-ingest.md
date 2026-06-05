@@ -12,9 +12,35 @@
   - **Least-privilege IAM role** (no wildcards): write bronze, use the CMK, read the one secret, write own logs.
   - **Ingest Lambda** (python3.12, 256 MB, 120 s, AWS-managed pandas layer) + log group (14-day retention).
   - **EventBridge** `rate(1 hour)` schedule → invokes the Lambda.
-- **Ingestion code (`src/ingestion/batch/`)** — `coingecko.py` (stdlib `urllib` + retry/backoff), `ingest.py` (fetch → DataFrame → `wr.s3.to_parquet` `overwrite_partitions`, idempotent by `dt`), `handler.py` (Lambda entry), `main()` (`make run-local`). Slim deps so the zip stays tiny; pandas/awswrangler come from the layer.
+- **Ingestion code (`src/ingestion/batch/`)** — `coingecko.py` (stdlib `urllib` + retry/backoff), `ingest.py` (fetch → DataFrame → `wr.s3.to_parquet` `overwrite_partitions`, idempotent per **hourly** snapshot; type-pinned 24-column Bronze schema), `handler.py` (Lambda entry), `main()` (`make run-local`). Slim deps so the zip stays tiny; pandas/awswrangler come from the layer.
 - **Remote state backend** — `infra/bootstrap/` creates an S3 state bucket + DynamoDB lock table; `infra/` uses a partial `backend "s3"` (config in gitignored `backend.hcl`).
-- **Tests** — 26 moto/unit tests (fetch, transform, key resolution, idempotent write, CLI entry).
+- **Tests** — 29 moto/unit tests (fetch + multi-window request, transform + null-safety, key resolution, idempotent hourly write + type-pinning, CLI entry).
+
+## Bronze schema & partitioning (widened 2026-06-06, pre-Stage-2)
+
+**Why widen:** Bronze is the only *raw*, append-only record — a field dropped at ingest can never be backfilled for past dates. The first cut kept 11 fields; before Stage 2 (catalog + SQL) we expanded to the full analytically-useful surface of CoinGecko `/coins/markets` with production names, so Stage 3 (OHLC / rolling / volatility) and Stage 5 (RAG) have what they need.
+
+**Why hourly:** the schedule fires hourly, so we **retain each hourly snapshot** at `prices/snapshot_date=YYYY-MM-DD/snapshot_hour=HH/` instead of overwriting one daily file — an hourly time series. `overwrite_partitions` keeps a same-hour re-run idempotent (replaces only that hour); earlier hours accumulate.
+
+**24 data + 2 partition columns** (`snake_case`, currency-neutral amounts, ISO-string timestamps left raw for Silver to cast):
+
+| group | columns |
+|---|---|
+| identity | `coin_id`, `coin_symbol`, `coin_name`, `quote_currency` |
+| price / market | `current_price`, `market_cap`, `market_cap_rank` (bigint), `fully_diluted_valuation`, `total_volume` |
+| 24h range | `high_24h`, `low_24h` |
+| price moves | `price_change_24h`, `price_change_pct_24h`, `price_change_pct_1h`, `price_change_pct_7d` |
+| cap moves | `market_cap_change_24h`, `market_cap_change_pct_24h` |
+| supply | `circulating_supply`, `total_supply`, `max_supply` |
+| all-time high | `ath`, `ath_change_pct` |
+| timestamps | `source_updated_at` (vendor), `ingested_at` (ours) |
+| partitions | `snapshot_date`, `snapshot_hour` |
+
+**Type-pinned** (`awswrangler dtype=`): each column gets an explicit Athena/Glue type, so the Parquet schema is identical across partitions even when a nullable field (e.g. `max_supply`, null for ETH) is null for every coin in a pull — avoids `HIVE_BAD_DATA` against the manually-defined Glue table in Stage 2.
+
+**Request:** `price_change_percentage=1h,24h,7d` (adds the 1h/7d move columns). **Dropped as noise:** `image`, `roi` (irregular nested object), the 24h `_in_currency` duplicate, rehypothecated rank, the ATL / ATH-date family, `sparkline`.
+
+**Verified live** (`snapshot_hour=22`): 26 columns read back with correct types (`market_cap_rank` `Int64`, amounts `double`); `max_supply` null for ETH handled cleanly; `price_change_pct_7d` BTC −16.2% / ETH −20.6%.
 
 ## The full IaC lifecycle (learned hands-on)
 - **LocalStack (free):** `tflocal apply` (create `+23`) → in-place **update** (`~` schedule) → **destroy**.
@@ -178,14 +204,14 @@ terraform apply                                 # 4. deploy for real
 - State: `s3://marketpulse-dev-tfstate-724166961779` + lock table `marketpulse-dev-tflock`.
 
 ## Key choices
-- Medallion lake, **Bronze = raw Parquet partitioned by `dt`**; idempotent `overwrite_partitions` (safe re-runs).
+- Medallion lake, **Bronze = raw, type-pinned 24-col Parquet partitioned by `snapshot_date` + `snapshot_hour`** (hourly time series); idempotent `overwrite_partitions` (per-hour-safe re-runs).
 - pandas/awswrangler from the **AWS-managed layer**, not the zip (slim package; `urllib` over `requests`).
 - Secret value **out-of-band** (the state trap) — CoinGecko key in `.env` (local) **and** Secrets Manager (cloud).
 - `force_destroy=true` on lake buckets (dev: one-command teardown; data is re-ingestible).
 - **Remote S3 backend + DynamoDB lock** (chose "set up now" over deferring).
 
 ## Verified
-`ruff` ✓ · 26 tests ✓ · `terraform validate` ✓ · LocalStack create/update/destroy ✓ · AWS apply `+23` ✓ · Lambda invoke `200` → Parquet in bronze ✓.
+`ruff` ✓ · 29 tests ✓ · `terraform validate` ✓ · LocalStack create/update/destroy ✓ · AWS apply `+23` ✓ · Lambda invoke `200` → 26-col Parquet in bronze (`snapshot_date`/`snapshot_hour`) ✓.
 
 ## Left to do
 - **Console (user):** create the Resource Group + activate the `project` cost-allocation tag (Stage 0 carry-over — now tagged resources exist).
