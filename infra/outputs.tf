@@ -28,3 +28,13 @@ output "ingest_role_arn" {
   description = "ARN of the ingest Lambda's least-privilege execution role."
   value       = module.iam_ingest.role_arn
 }
+
+output "ingest_function_name" {
+  description = "Name of the batch-ingest Lambda."
+  value       = module.lambda_ingest.function_name
+}
+
+output "ingest_schedule_rule" {
+  description = "Name of the EventBridge schedule rule."
+  value       = module.eventbridge_ingest.rule_name
+}

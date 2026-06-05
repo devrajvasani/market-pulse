@@ -243,5 +243,8 @@ override.tf.json
 # LocalStack runtime state — never commit (file 04 §4.5)
 infrastructure/localstack/volume/
 
+# Terraform Lambda build artifacts (staged package + zip)
+infra/build/
+
 # detect-secrets audit log (the .secrets.baseline file itself IS committed)
 .secrets.baseline.tmp
