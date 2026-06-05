@@ -7,7 +7,7 @@
 > |                          |                                                                                                                                                                                                                      |
 > | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 > | **Scope**          | Everything under[`infra/`](../infra/) — the root config and the reusable modules.                                                                                                                                    |
-> | **Current state**  | **Stage 1** — storage foundation + batch-ingest component.                                                                                                                                                    |
+> | **Current state**  | **Stage 1 — deployed to AWS** — storage + batch-ingest; remote S3 state backend.                                                                                                                                                    |
 > | **Companion docs** | System/data overview:[architecture.md](architecture.md) · IaC conventions: [`.claude/skills/iac-terraform`](../.claude/skills/iac-terraform/) · Setup: [plan/04_INFRASTRUCTURE_SETUP.md](plan/04_INFRASTRUCTURE_SETUP.md) |
 
 ## Contents
@@ -154,7 +154,7 @@ builds (resources), what it hands back (outputs).
 
 | Inputs                                                                        | Outputs                         |
 | ----------------------------------------------------------------------------- | ------------------------------- |
-| `bucket_name` — globally-unique name · `kms_key_arn` — CMK for SSE-KMS | `bucket_id` · `bucket_arn` |
+| `bucket_name` — globally-unique name · `kms_key_arn` — CMK for SSE-KMS · `force_destroy` (default `false`; `true` on lake buckets for clean teardown) | `bucket_id` · `bucket_arn` |
 
 ### 5.4 `secret`
 
@@ -179,7 +179,7 @@ are required by awswrangler and to read the KMS-encrypted secret on real AWS.
 
 | Inputs                                                                                                                                                                                                                                                                                    | Outputs                               |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| `function_name` · `role_arn` · `source_zip` · `source_hash` · `environment` (map) · `layers` (list) · **defaults:** `handler=src.ingestion.batch.handler.handler`, `runtime=python3.12`, `timeout_seconds=60`, `memory_mb=256`, `log_retention_days=14` | `function_arn` · `function_name` |
+| `function_name` · `role_arn` · `source_zip` · `source_hash` · `environment` (map) · `layers` (list) · **defaults:** `handler=src.ingestion.batch.handler.handler`, `runtime=python3.12`, `timeout_seconds=120`, `memory_mb=256`, `log_retention_days=14` | `function_arn` · `function_name` |
 
 `source_hash` (base64-sha256 of the zip) is how Terraform knows the code changed → it redeploys only
 when the package actually differs.
@@ -344,7 +344,7 @@ What each stage adds to `infra/`. Append a row when a stage lands; keep §4–§
 | Stage        | Theme                                                    | Root files                                    | Modules / resources added                                                                               | Status                                             |
 | ------------ | -------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | **0**  | Foundation                                               | `main.tf`, `variables.tf`, `outputs.tf` | Provider +`default_tags` skeleton — **no resources**                                           | ✅ done                                            |
-| **1**  | Storage + batch ingest (Bronze)                          | `storage.tf`, `ingest.tf`                 | `kms`, `s3` (×3: bronze/silver/gold), `secret`, `iam_lambda`, `lambda`, `eventbridge`      | ✅ built · validated · local/cloud apply pending |
+| **1**  | Storage + batch ingest (Bronze)                          | `storage.tf`, `ingest.tf`                 | `kms`, `s3` (×3: bronze/silver/gold), `secret`, `iam_lambda`, `lambda`, `eventbridge`      | ✅ DEPLOYED to AWS (acct 724166961779); LocalStack create/update/destroy demoed |
 | **2+** | Transforms · streaming · RAG · orchestration · CI/CD | _tbd_                                       | _Not yet built — appended when the stage lands (e.g. Glue/Athena/Iceberg, Kinesis, Step Functions)._ | ⏳ planned                                         |
 
 ### Resource names created in Stage 1 (`environment = dev`)
@@ -355,6 +355,14 @@ What each stage adds to `infra/`. Append a row when a stage lands; keep §4–§
 - `marketpulse-dev-role-lambda-ingest` (+ inline `…-policy`)
 - `marketpulse-dev-lambda-batch-ingest` (+ log group `/aws/lambda/marketpulse-dev-lambda-batch-ingest`)
 - `marketpulse-dev-rule-ingest-schedule`
+
+### Remote state backend (Stage 1)
+
+State lives in **S3** (`marketpulse-dev-tfstate-<account>`) with a **DynamoDB lock**
+(`marketpulse-dev-tflock`), created by [`infra/bootstrap/`](../infra/bootstrap/) (run once with its
+own local state). `infra/` wires it via a partial `backend "s3" {}` — concrete values in the
+gitignored `infra/backend.hcl` (`terraform init -backend-config=backend.hcl`). LocalStack runs still
+use local state. _(Deferred cleanup: `dynamodb_table` → `use_lockfile`, dropping DynamoDB.)_
 
 ---
 
