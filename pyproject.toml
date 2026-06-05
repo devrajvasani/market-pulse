@@ -10,8 +10,7 @@ dependencies = [
     "duckdb>=1.0",        # local query engine — the Athena adapter target (Section B)
     "python-dotenv>=1.0", # auto-load .env + config/environments/*.env (config/settings.py)
     "awswrangler>=3.9",   # partitioned Parquet -> S3 (idempotent overwrite_partitions); pandas+pyarrow
-    "requests>=2.31",     # CoinGecko HTTP client
-    "tenacity>=8.2",      # retry with exponential backoff on transient errors (Section L.5)
+    #                       on Lambda this comes from the AWS SDK for pandas layer, not the zip
 ]
 
 # Dev/test tooling. Installed via `uv sync` into the project venv; used by `make test` and CI.

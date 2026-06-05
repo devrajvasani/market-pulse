@@ -15,7 +15,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:  # not installed on Lambda; there env vars are set directly, no .env files
+    load_dotenv = None  # type: ignore[assignment]
 
 from src.backends.llm_client import LLMClient
 from src.backends.query_engine import QueryEngine
@@ -34,6 +37,8 @@ def _load_env_files() -> None:
     (committed, non-secret mode config). ``override=False`` so an already-set
     variable (shell, CI, Lambda) always wins; missing files are ignored.
     """
+    if load_dotenv is None:
+        return  # e.g. on Lambda: no .env files; env vars are provided directly
     load_dotenv(_REPO_ROOT / ".env", override=False)
     env = (os.getenv("APP_ENV") or "").strip().lower() or "local"
     load_dotenv(_REPO_ROOT / "config" / "environments" / f"{env}.env", override=False)

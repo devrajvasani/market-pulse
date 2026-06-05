@@ -35,14 +35,19 @@ _SAMPLE = [
 ]
 
 
-class _FakeResponse:
+class _FakeUrlopen:
+    """Stand-in for urllib.request.urlopen's context manager (returns canned JSON bytes)."""
+
     def __init__(self, payload):
-        self._payload = payload
+        self._payload = json.dumps(payload).encode()
 
-    def raise_for_status(self):
-        return None
+    def __enter__(self):
+        return self
 
-    def json(self):
+    def __exit__(self, *exc):
+        return False
+
+    def read(self):
         return self._payload
 
 
@@ -54,7 +59,8 @@ def test_client_rejects_empty_key():
 
 def test_fetch_markets_parses_payload(monkeypatch):
     monkeypatch.setattr(
-        "src.ingestion.batch.coingecko.requests.get", lambda *a, **k: _FakeResponse(_SAMPLE)
+        "src.ingestion.batch.coingecko.urllib.request.urlopen",
+        lambda *a, **k: _FakeUrlopen(_SAMPLE),
     )
     data = CoinGeckoClient("CG-test").fetch_markets(["bitcoin", "ethereum"])
     assert [r["symbol"] for r in data] == ["btc", "eth"]
@@ -62,7 +68,7 @@ def test_fetch_markets_parses_payload(monkeypatch):
 
 def test_fetch_markets_rejects_bad_payload(monkeypatch):
     monkeypatch.setattr(
-        "src.ingestion.batch.coingecko.requests.get", lambda *a, **k: _FakeResponse({})
+        "src.ingestion.batch.coingecko.urllib.request.urlopen", lambda *a, **k: _FakeUrlopen({})
     )
     with pytest.raises(IngestionError):
         CoinGeckoClient("CG-test").fetch_markets(["bitcoin"])

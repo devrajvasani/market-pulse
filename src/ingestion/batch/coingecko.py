@@ -1,14 +1,17 @@
-"""CoinGecko market-data client — the batch-ingestion source (free Demo API)."""
+"""CoinGecko market-data client — the batch-ingestion source (free Demo API).
+
+Uses only the standard library (``urllib``) + a tiny retry, so the Lambda zip stays
+small: pandas / pyarrow / awswrangler / boto3 come from the AWS SDK for pandas
+layer, not the package.
+"""
 
 from __future__ import annotations
 
-import requests
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+import json
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from src.common.errors import IngestionError
 from src.common.logging_config import get_logger
@@ -17,6 +20,8 @@ logger = get_logger(__name__)
 
 BASE_URL = "https://api.coingecko.com/api/v3"
 _TIMEOUT_SECONDS = 15
+_MAX_ATTEMPTS = 3
+_BACKOFF_BASE_SECONDS = 2
 
 
 class CoinGeckoClient:
@@ -37,14 +42,8 @@ class CoinGeckoClient:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
 
-    @retry(
-        retry=retry_if_exception_type(requests.RequestException),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        reraise=True,
-    )
-    def _get(self, path: str, params: dict[str, str]) -> list[dict]:
-        """GET a path, retrying on transient network/HTTP errors.
+    def _get(self, path: str, params: dict[str, str]) -> list | dict:
+        """GET a path with retry + exponential backoff on transient errors.
 
         Args:
             path: API path, e.g. ``/coins/markets``.
@@ -54,13 +53,28 @@ class CoinGeckoClient:
             The parsed JSON body.
 
         Raises:
-            requests.RequestException: on a network/HTTP error (after 3 attempts).
+            IngestionError: on a network/HTTP error after ``_MAX_ATTEMPTS`` attempts.
         """
-        url = f"{self._base_url}{path}"
-        headers = {"x-cg-demo-api-key": self._api_key, "accept": "application/json"}
-        resp = requests.get(url, params=params, headers=headers, timeout=_TIMEOUT_SECONDS)
-        resp.raise_for_status()
-        return resp.json()
+        url = f"{self._base_url}{path}?{urllib.parse.urlencode(params)}"
+        request = urllib.request.Request(
+            url, headers={"x-cg-demo-api-key": self._api_key, "accept": "application/json"}
+        )
+        last_error: Exception | None = None
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as resp:
+                    return json.loads(resp.read())
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+                last_error = exc
+                if attempt < _MAX_ATTEMPTS:
+                    backoff = _BACKOFF_BASE_SECONDS * 2 ** (attempt - 1)
+                    logger.warning(
+                        "CoinGecko request failed; retrying",
+                        extra={"attempt": attempt, "backoff_s": backoff},
+                    )
+                    time.sleep(backoff)
+        msg = f"CoinGecko request failed after {_MAX_ATTEMPTS} attempts: {last_error}"
+        raise IngestionError(msg)
 
     def fetch_markets(self, coin_ids: list[str], vs_currency: str = "usd") -> list[dict]:
         """Fetch current market data (price, volume, market cap, 24h change) per coin.
@@ -83,10 +97,7 @@ class CoinGeckoClient:
         logger.info(
             "Fetching CoinGecko markets", extra={"coins": coin_ids, "vs_currency": vs_currency}
         )
-        try:
-            data = self._get("/coins/markets", params)
-        except requests.RequestException as exc:
-            raise IngestionError(f"CoinGecko request failed after retries: {exc}") from exc
+        data = self._get("/coins/markets", params)
         if not isinstance(data, list) or not data:
             raise IngestionError(f"CoinGecko returned an unexpected payload: {type(data)}")
         logger.info("Fetched CoinGecko markets", extra={"count": len(data)})
