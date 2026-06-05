@@ -27,14 +27,24 @@ as `LOCALSTACK_AUTH_TOKEN=<token>` — never commit it.
 
 ## Local setup (free, offline)
 ```bash
-uv sync                                              # create the env + install deps
-uv run pre-commit install                            # enable the commit gate (once)
-set -a && . config/environments/local.env && set +a  # APP_ENV=local + dummy creds + endpoint
-make localstack-up && make wait-localstack           # start + wait for a healthy LocalStack
-make test                                            # ruff + critical tests
+uv sync                                     # create the env + install deps
+uv run pre-commit install                   # enable the commit gate (once)
+make localstack-up && make wait-localstack  # start + wait for a healthy LocalStack
+make test                                   # ruff + critical tests
 ```
-`make help` lists every command. Local mode uses **dummy** creds (`test`/`test`) and
-the LocalStack endpoint — never real keys (Section O).
+`make help` lists every command. Python auto-loads the env files (below), so no manual
+`source` is needed for `uv run ...`. Local mode uses **dummy** creds (`test`/`test`) + the
+LocalStack endpoint — never real keys (Section O).
+
+### Environment files (how config loads)
+`config/settings.py` auto-loads, in precedence order (highest first):
+1. the **real shell/OS environment** (what Lambda/CI export) — always wins;
+2. root **`.env`** — *gitignored* local secrets + overrides (e.g. `MARKETDATA_API_KEY`); create it from `.env.example`;
+3. **`config/environments/<APP_ENV>.env`** — *committed*, non-secret mode config (`local.env` = LocalStack endpoint + dummy creds; `aws.env` = region, no secrets).
+
+Real **AWS account credentials never go in any `.env`** — they live in `~/.aws/credentials`
+(`aws configure`). For raw `awslocal`/`aws` CLI commands, `source config/environments/local.env`
+in your shell first (the auto-load only covers Python).
 
 ## The backend-adapter design (cloud ↔ local by config)
 Code never imports `boto3` for Athena/Bedrock directly — it asks
