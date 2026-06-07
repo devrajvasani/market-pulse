@@ -2,7 +2,7 @@
 # Windows: run via Git Bash / WSL, or install `make` (e.g. choco install make).
 .PHONY: help install lint format test precommit \
         localstack-up localstack-down wait-localstack deploy-local run-local \
-        tf-fmt tf-validate tf-plan deploy stream destroy
+        tf-fmt tf-validate tf-plan deploy stream destroy query
 
 help:  ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -38,6 +38,9 @@ deploy-local: localstack-up wait-localstack  ## Bring up the local stack and con
 
 run-local:  ## Run the batch ingestion locally (needs APP_ENV=local + BRONZE_BUCKET from tflocal output)
 	uv run python -m src.ingestion.batch.ingest
+
+query:  ## Run SELECT count(*) FROM bronze_prices via the active QueryEngine (ENGINE=duckdb|athena forces)
+	uv run python -m src.query.run $(if $(ENGINE),--engine $(ENGINE))
 
 tf-fmt:  ## Check Terraform formatting
 	terraform -chdir=infra fmt -check -recursive
