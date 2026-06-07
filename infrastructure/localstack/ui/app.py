@@ -1,11 +1,13 @@
 """MarketPulse — LocalStack console (read-only dashboard).
 
 Queries the LocalStack emulator with boto3 server-side (so the browser never has to deal
-with SigV4 signing or CORS) and serves a small AWS-console-like dashboard: service health,
-S3 buckets + objects, Lambda, Secrets Manager (names only), KMS, EventBridge, and more.
+with SigV4 signing or CORS) and serves an AWS-console-like dashboard with a service sidebar
+and a detail panel: service health, S3 buckets + objects + encryption/versioning, Lambda
+(config + env keys), Secrets Manager (names + metadata only), KMS, EventBridge, CloudWatch
+Logs, SQS, SNS, Step Functions, Kinesis, IAM.
 
-Read-only by design: it only ever LISTS resources and NEVER reads a secret value.
-Dev tool only — dummy credentials against the local emulator.
+Read-only by design: it only ever LISTS/DESCRIBES resources and NEVER reads a secret value.
+Lambda env values whose key looks sensitive are redacted. Dev tool only — dummy credentials.
 """
 
 from __future__ import annotations
@@ -32,7 +34,31 @@ def _client(service: str):
 
 
 def _iso(value):
+    """ISO-format a datetime; pass through anything else."""
     return value.isoformat() if isinstance(value, dt.datetime) else value
+
+
+def _iso_ms(epoch_ms):
+    """ISO-format an epoch-milliseconds timestamp (CloudWatch Logs uses these)."""
+    if not epoch_ms:
+        return None
+    return dt.datetime.fromtimestamp(epoch_ms / 1000, dt.UTC).isoformat(timespec="seconds")
+
+
+def _safe(fn, default=None):
+    """Call a single boto3 detail-fetch; swallow failures so one missing call never breaks a row."""
+    try:
+        return fn()
+    except Exception:
+        return default
+
+
+def _is_sensitive_key(key: str) -> bool:
+    """True if a Lambda env-var key likely holds a secret value (so we redact the value)."""
+    low = key.lower()
+    suffixes = ("_key", "_secret", "_token", "_password")
+    needles = ("password", "apikey", "api_key", "access_key", "secret_access", "private_key")
+    return low.endswith(suffixes) or any(s in low for s in needles)
 
 
 def _collect(payload: dict, key: str, fn) -> None:
@@ -48,89 +74,248 @@ def _s3_buckets():
     s3 = _client("s3")
     buckets = []
     for b in s3.list_buckets().get("Buckets", []):
-        objects = []
-        try:
-            contents = s3.list_objects_v2(Bucket=b["Name"]).get("Contents", [])
-        except Exception as exc:
-            contents = []
-            objects.append({"key": f"(error: {str(exc).splitlines()[0][:80]})", "size": 0})
-        for o in contents:
+        name = b["Name"]
+        objects, total = [], 0
+        for o in _safe(lambda n=name: s3.list_objects_v2(Bucket=n).get("Contents", []), []):
+            total += o.get("Size", 0)
             objects.append(
-                {"key": o["Key"], "size": o["Size"], "modified": _iso(o.get("LastModified"))}
+                {
+                    "key": o["Key"],
+                    "size": o.get("Size", 0),
+                    "modified": _iso(o.get("LastModified")),
+                    "storage_class": o.get("StorageClass", "STANDARD"),
+                }
             )
+        versioning = _safe(lambda n=name: s3.get_bucket_versioning(Bucket=n).get("Status"))
+        encryption = _safe(
+            lambda n=name: s3.get_bucket_encryption(Bucket=n)["ServerSideEncryptionConfiguration"][
+                "Rules"
+            ][0]["ApplyServerSideEncryptionByDefault"]["SSEAlgorithm"]
+        )
+        region = _safe(
+            lambda n=name: s3.get_bucket_location(Bucket=n).get("LocationConstraint") or "us-east-1"
+        )
         buckets.append(
-            {"name": b["Name"], "created": _iso(b.get("CreationDate")), "objects": objects}
+            {
+                "name": name,
+                "created": _iso(b.get("CreationDate")),
+                "region": region or "us-east-1",
+                "versioning": versioning or "Disabled",
+                "encryption": encryption or "None",
+                "object_count": len(objects),
+                "total_size": total,
+                "objects": objects,
+            }
         )
     return buckets
 
 
 def _lambdas():
     fns = _client("lambda").list_functions().get("Functions", [])
-    return [
-        {
-            "name": f["FunctionName"],
-            "runtime": f.get("Runtime"),
-            "memory": f.get("MemorySize"),
-            "timeout": f.get("Timeout"),
-            "layers": len(f.get("Layers") or []),
-            "modified": f.get("LastModified"),
-        }
-        for f in fns
-    ]
+    out = []
+    for f in fns:
+        env = (f.get("Environment") or {}).get("Variables") or {}
+        role = f.get("Role") or ""
+        out.append(
+            {
+                "name": f["FunctionName"],
+                "runtime": f.get("Runtime"),
+                "handler": f.get("Handler"),
+                "memory": f.get("MemorySize"),
+                "timeout": f.get("Timeout"),
+                "code_size": f.get("CodeSize"),
+                "layers": len(f.get("Layers") or []),
+                "role": role.rsplit("/", 1)[-1] if role else "-",
+                "description": f.get("Description") or "",
+                "modified": f.get("LastModified"),
+                "env": {k: ("••• redacted" if _is_sensitive_key(k) else v) for k, v in env.items()},
+            }
+        )
+    return out
 
 
 def _secrets():
     # Names + metadata only — the dashboard must NEVER read a secret value.
     secs = _client("secretsmanager").list_secrets().get("SecretList", [])
-    return [{"name": s["Name"], "modified": _iso(s.get("LastChangedDate"))} for s in secs]
+    return [
+        {
+            "name": s["Name"],
+            "description": s.get("Description") or "",
+            "created": _iso(s.get("CreatedDate")),
+            "modified": _iso(s.get("LastChangedDate")),
+            "kms_key_id": (s.get("KmsKeyId") or "").rsplit("/", 1)[-1] or "(default)",
+            "rotation_enabled": s.get("RotationEnabled", False),
+        }
+        for s in secs
+    ]
 
 
 def _kms_keys():
     kms = _client("kms")
     aliases: dict[str, list[str]] = {}
-    for a in kms.list_aliases().get("Aliases", []):
+    for a in _safe(lambda: kms.list_aliases().get("Aliases", []), []):
         if a.get("TargetKeyId"):
             aliases.setdefault(a["TargetKeyId"], []).append(a["AliasName"])
-    return [
-        {"id": k["KeyId"], "aliases": aliases.get(k["KeyId"], [])}
-        for k in kms.list_keys().get("Keys", [])
-    ]
+    out = []
+    for k in kms.list_keys().get("Keys", []):
+        kid = k["KeyId"]
+        meta = _safe(lambda i=kid: kms.describe_key(KeyId=i)["KeyMetadata"], {}) or {}
+        rotation = _safe(
+            lambda i=kid: kms.get_key_rotation_status(KeyId=i).get("KeyRotationEnabled")
+        )
+        out.append(
+            {
+                "id": kid,
+                "aliases": aliases.get(kid, []),
+                "state": meta.get("KeyState"),
+                "key_spec": meta.get("KeySpec") or meta.get("CustomerMasterKeySpec"),
+                "key_usage": meta.get("KeyUsage"),
+                "rotation_enabled": rotation,
+                "description": meta.get("Description") or "",
+                "created": _iso(meta.get("CreationDate")),
+            }
+        )
+    return out
 
 
 def _rules():
-    rules = _client("events").list_rules().get("Rules", [])
-    return [
-        {"name": r["Name"], "schedule": r.get("ScheduleExpression"), "state": r.get("State")}
-        for r in rules
-    ]
+    ev = _client("events")
+    out = []
+    for r in ev.list_rules().get("Rules", []):
+        name = r["Name"]
+        targets = _safe(lambda n=name: ev.list_targets_by_rule(Rule=n).get("Targets", []), [])
+        out.append(
+            {
+                "name": name,
+                "schedule": r.get("ScheduleExpression"),
+                "state": r.get("State"),
+                "description": r.get("Description") or "",
+                "arn": r.get("Arn"),
+                "targets": [{"id": t.get("Id"), "arn": t.get("Arn")} for t in targets],
+            }
+        )
+    return out
 
 
 def _log_groups():
-    groups = _client("logs").describe_log_groups().get("logGroups", [])
-    return [{"name": g["logGroupName"], "retention": g.get("retentionInDays")} for g in groups]
+    logs = _client("logs")
+    out = []
+    for g in logs.describe_log_groups().get("logGroups", []):
+        name = g["logGroupName"]
+        streams = _safe(
+            lambda n=name: len(
+                logs.describe_log_streams(logGroupName=n, limit=50).get("logStreams", [])
+            )
+        )
+        out.append(
+            {
+                "name": name,
+                "retention": g.get("retentionInDays"),
+                "stored_bytes": g.get("storedBytes", 0),
+                "created": _iso_ms(g.get("creationTime")),
+                "streams": streams,
+            }
+        )
+    return out
 
 
 def _sqs():
-    urls = _client("sqs").list_queues().get("QueueUrls") or []
-    return [u.rsplit("/", 1)[-1] for u in urls]
+    sqs = _client("sqs")
+    out = []
+    for url in sqs.list_queues().get("QueueUrls") or []:
+        attrs = (
+            _safe(
+                lambda u=url: sqs.get_queue_attributes(QueueUrl=u, AttributeNames=["All"]).get(
+                    "Attributes", {}
+                ),
+                {},
+            )
+            or {}
+        )
+        out.append(
+            {
+                "name": url.rsplit("/", 1)[-1],
+                "url": url,
+                "messages_available": attrs.get("ApproximateNumberOfMessages"),
+                "messages_in_flight": attrs.get("ApproximateNumberOfMessagesNotVisible"),
+            }
+        )
+    return out
 
 
 def _sns():
-    topics = _client("sns").list_topics().get("Topics") or []
-    return [t["TopicArn"].rsplit(":", 1)[-1] for t in topics]
+    sns = _client("sns")
+    out = []
+    for t in sns.list_topics().get("Topics") or []:
+        arn = t["TopicArn"]
+        subs = _safe(
+            lambda a=arn: len(sns.list_subscriptions_by_topic(TopicArn=a).get("Subscriptions", []))
+        )
+        out.append({"name": arn.rsplit(":", 1)[-1], "arn": arn, "subscriptions": subs})
+    return out
 
 
 def _state_machines():
     machines = _client("stepfunctions").list_state_machines().get("stateMachines", [])
-    return [m["name"] for m in machines]
+    return [
+        {
+            "name": m["name"],
+            "arn": m["stateMachineArn"],
+            "type": m.get("type"),
+            "created": _iso(m.get("creationDate")),
+        }
+        for m in machines
+    ]
 
 
 def _kinesis():
-    return _client("kinesis").list_streams().get("StreamNames", [])
+    k = _client("kinesis")
+    out = []
+    for name in k.list_streams().get("StreamNames", []):
+        summary = (
+            _safe(
+                lambda n=name: k.describe_stream_summary(StreamName=n).get(
+                    "StreamDescriptionSummary", {}
+                ),
+                {},
+            )
+            or {}
+        )
+        out.append(
+            {
+                "name": name,
+                "status": summary.get("StreamStatus"),
+                "shards": summary.get("OpenShardCount"),
+                "retention_hours": summary.get("RetentionPeriodHours"),
+            }
+        )
+    return out
 
 
 def _iam_roles():
-    return [r["RoleName"] for r in _client("iam").list_roles().get("Roles", [])]
+    iam = _client("iam")
+    out = []
+    for r in iam.list_roles().get("Roles", []):
+        name = r["RoleName"]
+        inline = _safe(
+            lambda n=name: len(iam.list_role_policies(RoleName=n).get("PolicyNames", []))
+        )
+        attached = _safe(
+            lambda n=name: len(
+                iam.list_attached_role_policies(RoleName=n).get("AttachedPolicies", [])
+            )
+        )
+        out.append(
+            {
+                "name": name,
+                "arn": r.get("Arn"),
+                "created": _iso(r.get("CreateDate")),
+                "description": r.get("Description") or "",
+                "inline_policies": inline,
+                "attached_policies": attached,
+            }
+        )
+    return out
 
 
 def gather() -> dict:

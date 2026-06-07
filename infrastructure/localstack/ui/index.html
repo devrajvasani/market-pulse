@@ -7,86 +7,127 @@
     <style>
       :root {
         --bg: #f2f3f3; --panel: #fff; --border: #d5dbdb; --ink: #16191f; --muted: #5f6b7a;
-        --accent: #ec7211; --green: #1d8102; --green-bg: #e8f5e9; --blue: #0972d3;
-        --blue-bg: #e9f2fb; --grey: #8d99a8; --grey-bg: #eef1f3; --red: #b3261e; --red-bg: #fdecea;
+        --accent: #ec7211; --accent-bg: #fef1e7; --green: #1d8102; --green-bg: #e8f5e9;
+        --blue: #0972d3; --blue-bg: #e9f2fb; --grey: #8d99a8; --grey-bg: #eef1f3;
+        --red: #b3261e; --red-bg: #fdecea; --hover: #f7f8f8;
         --mono: ui-monospace, Menlo, Consolas, monospace;
       }
       * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
       body {
-        margin: 0; background: var(--bg); color: var(--ink); font-size: 14px;
-        font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+        display: flex; flex-direction: column; background: var(--bg); color: var(--ink);
+        font: 14px/1.45 system-ui, "Segoe UI", Roboto, sans-serif;
       }
+      a { color: var(--blue); }
+
+      /* ── header ── */
       header {
         background: #fff; border-bottom: 1px solid var(--border); border-top: 3px solid var(--accent);
-        padding: 0.7rem 1.2rem; position: sticky; top: 0; z-index: 5;
+        padding: 0.55rem 1.1rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+        position: sticky; top: 0; z-index: 10;
       }
-      .bar { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
-      h1 { font-size: 1.05rem; margin: 0; display: flex; align-items: center; gap: 0.5rem; }
+      h1 { font-size: 1rem; margin: 0; display: flex; align-items: center; gap: 0.5rem; white-space: nowrap; }
       .logo { width: 0.7rem; height: 1.25rem; background: var(--accent); border-radius: 2px; }
-      .meta {
-        color: var(--muted); font-size: 0.8rem; display: flex; gap: 0.9rem; flex-wrap: wrap;
-        margin-left: auto; align-items: center;
-      }
+      .meta { color: var(--muted); font-size: 0.78rem; display: flex; gap: 0.9rem; flex-wrap: wrap; align-items: center; }
       .meta b { color: var(--ink); font-family: var(--mono); }
+      .spacer { margin-left: auto; }
+      .controls { display: flex; align-items: center; gap: 0.7rem; }
+      #status { color: var(--muted); font-size: 0.76rem; min-width: 8rem; text-align: right; }
+      label.auto { font-size: 0.78rem; color: var(--muted); display: flex; align-items: center; gap: 0.3rem; }
       button {
         font: inherit; border: 1px solid var(--border); background: #fff; border-radius: 6px;
         padding: 0.3rem 0.75rem; cursor: pointer;
       }
       button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-      #status { color: var(--muted); font-size: 0.8rem; }
-      label.auto { font-size: 0.8rem; color: var(--muted); margin-left: auto; }
-      main { padding: 1.2rem; max-width: 1240px; margin: 0 auto; }
-      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 1rem; }
-      .full { grid-column: 1 / -1; }
-      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+
+      /* ── layout ── */
+      .layout { display: flex; flex: 1; min-height: 0; }
+      .sidebar {
+        width: 250px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--border);
+        overflow-y: auto; padding: 0.6rem 0;
+      }
+      .side-label {
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+        padding: 0.6rem 1rem 0.3rem; font-weight: 600;
+      }
+      .nav-item {
+        display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 1rem; cursor: pointer;
+        border-left: 3px solid transparent; font-size: 0.9rem; user-select: none;
+      }
+      .nav-item .ico { width: 1.3rem; text-align: center; font-size: 0.95rem; }
+      .nav-item .nm { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .nav-item:hover { background: var(--hover); }
+      .nav-item.active { background: var(--accent-bg); border-left-color: var(--accent); font-weight: 600; }
+      .nav-item.disabled { opacity: 0.45; cursor: not-allowed; }
+      .nav-item.disabled:hover { background: transparent; }
+      .dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; flex-shrink: 0; background: var(--grey); }
+      .dot.on { background: var(--green); } .dot.off { background: var(--grey); } .dot.err { background: var(--red); }
+      .cnt {
+        background: var(--grey-bg); color: var(--ink); border-radius: 999px; padding: 0.02rem 0.5rem;
+        font-size: 0.72rem; font-weight: 600; min-width: 1.4rem; text-align: center;
+      }
+      .nav-item.active .cnt { background: var(--accent); color: #fff; }
+
+      /* ── main panel ── */
+      .main { flex: 1; overflow-y: auto; padding: 1.1rem 1.4rem; }
+      .page-head { display: flex; align-items: center; gap: 0.6rem; margin: 0 0 0.3rem; }
+      .page-head h2 { font-size: 1.25rem; margin: 0; }
+      .page-head .ico { font-size: 1.25rem; }
+      .page-sub { color: var(--muted); font-size: 0.82rem; margin: 0 0 1rem; }
+
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 0.9rem; }
       .card > .head {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 0.55rem 0.85rem; border-bottom: 1px solid var(--border);
+        display: flex; align-items: center; gap: 0.5rem; justify-content: space-between;
+        padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border); background: #fbfbfa;
       }
-      .head h2 {
-        font-size: 0.8rem; margin: 0; text-transform: uppercase; letter-spacing: 0.04em;
-        color: var(--muted);
-      }
-      .count {
-        background: var(--grey-bg); color: var(--ink); border-radius: 999px;
-        padding: 0.05rem 0.55rem; font-weight: 600; font-size: 0.76rem;
-      }
-      .card .body { padding: 0.55rem 0.85rem 0.8rem; }
-      .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-      .chip {
-        border-radius: 999px; padding: 0.12rem 0.6rem; font-size: 0.74rem;
-        border: 1px solid transparent; font-family: var(--mono);
-      }
-      .chip.running, .chip.available { background: var(--green-bg); color: var(--green); }
-      .chip.disabled { background: var(--grey-bg); color: var(--grey); }
-      .chip.error { background: var(--red-bg); color: var(--red); }
+      .card .head h3 { font-size: 0.92rem; margin: 0; font-family: var(--mono); word-break: break-all; }
+      .card .body { padding: 0.7rem 0.85rem; }
+
+      .chip { border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.74rem; border: 1px solid transparent; font-family: var(--mono); white-space: nowrap; }
+      .chip.on, .chip.available { background: var(--green-bg); color: var(--green); }
+      .chip.off, .chip.disabled { background: var(--grey-bg); color: var(--grey); }
+      .chip.err { background: var(--red-bg); color: var(--red); }
+      .chip.info { background: var(--blue-bg); color: var(--blue); }
+      .chip.warn { background: var(--accent-bg); color: var(--accent); }
+
       table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-      th, td { text-align: left; padding: 0.3rem 0.4rem; border-bottom: 1px solid #eef1f1; vertical-align: top; }
-      th { color: var(--muted); font-weight: 600; }
+      th, td { text-align: left; padding: 0.34rem 0.5rem; border-bottom: 1px solid #eef1f1; vertical-align: top; }
+      th { color: var(--muted); font-weight: 600; white-space: nowrap; }
       .mono { font-family: var(--mono); font-size: 0.78rem; word-break: break-all; }
-      .empty { color: var(--muted); font-style: italic; padding: 0.3rem 0; }
-      ul.plain { margin: 0.2rem 0; padding-left: 1.05rem; }
-      ul.plain li { padding: 0.12rem 0; }
-      details { border: 1px solid var(--border); border-radius: 6px; margin: 0.4rem 0; padding: 0.15rem 0.6rem; }
-      summary { cursor: pointer; padding: 0.35rem 0; font-weight: 600; }
-      summary .count { font-weight: 600; margin-left: 0.3rem; }
+      .num { text-align: right; font-family: var(--mono); white-space: nowrap; }
+
+      .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 0.9rem; font-size: 0.82rem; }
+      .kv dt { color: var(--muted); }
+      .kv dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+
+      .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.7rem; }
+      .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 0.7rem 0.85rem; cursor: pointer; }
+      .stat:hover { border-color: var(--accent); }
+      .stat .n { font-size: 1.5rem; font-weight: 700; }
+      .stat .l { color: var(--muted); font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem; }
+      .stat.dim { opacity: 0.5; cursor: default; } .stat.dim:hover { border-color: var(--border); }
+
+      .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+      .empty { color: var(--muted); font-style: italic; padding: 0.6rem 0; }
+      .hint { color: var(--muted); font-size: 0.78rem; margin-bottom: 0.4rem; }
       .err { color: var(--red); }
-      .hint { color: var(--muted); font-size: 0.78rem; margin-bottom: 0.3rem; }
     </style>
   </head>
   <body>
     <header>
-      <div class="bar">
-        <h1><span class="logo"></span> MarketPulse · LocalStack Console</h1>
-        <div class="meta" id="meta"></div>
-      </div>
-      <div class="bar" style="margin-top: 0.45rem">
+      <h1><span class="logo"></span> MarketPulse · LocalStack</h1>
+      <div class="meta" id="meta"></div>
+      <div class="spacer"></div>
+      <div class="controls">
         <span id="status">loading…</span>
-        <label class="auto"><input type="checkbox" id="auto" /> auto-refresh (10s)</label>
+        <label class="auto"><input type="checkbox" id="auto" /> auto 10s</label>
         <button class="primary" id="refresh">↻ Refresh</button>
       </div>
     </header>
-    <main id="app"></main>
+    <div class="layout">
+      <nav class="sidebar" id="sidebar"></nav>
+      <main class="main" id="main"></main>
+    </div>
 
     <script>
       const $ = (id) => document.getElementById(id);
@@ -98,193 +139,333 @@
         n = Number(n || 0);
         if (n < 1024) return n + " B";
         if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
-        return (n / 1048576).toFixed(2) + " MB";
+        if (n < 1073741824) return (n / 1048576).toFixed(2) + " MB";
+        return (n / 1073741824).toFixed(2) + " GB";
       };
       const fmtTime = (s) =>
         s ? esc(String(s).replace("T", " ").replace(/\.\d+/, "").replace("+00:00", "Z")) : "—";
+      const val = (v) => (v === null || v === undefined || v === "" ? "—" : esc(v));
       const mono = (s) => `<span class="mono">${esc(s)}</span>`;
-      const empty = () => `<div class="empty">none</div>`;
-      const list = (items) =>
-        `<ul class="plain">${items.map((i) => `<li>${i}</li>`).join("")}</ul>`;
+      const chip = (text, cls = "info") => `<span class="chip ${cls}">${esc(text)}</span>`;
+      const bool = (b) => (b ? chip("yes", "on") : chip("no", "off"));
+      const empty = (m) => `<div class="empty">${esc(m)}</div>`;
       const table = (cols, rows) =>
-        `<table><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${rows
-          .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
-          .join("")}</tbody></table>`;
-      const card = (title, count, body, full) =>
-        `<section class="card ${full ? "full" : ""}"><div class="head"><h2>${esc(
-          title
-        )}</h2><span class="count">${count}</span></div><div class="body">${body}</div></section>`;
+        rows.length
+          ? `<table><thead><tr>${cols
+              .map((c) => `<th>${esc(c)}</th>`)
+              .join("")}</tr></thead><tbody>${rows
+              .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
+              .join("")}</tbody></table>`
+          : "";
+      const kv = (pairs) =>
+        `<dl class="kv">${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+      const card = (head, body) =>
+        `<section class="card"><div class="head">${head}</div><div class="body">${body}</div></section>`;
 
+      // service key → { label, icon, healthKey, render(items) }
+      const SERVICES = [
+        { key: "s3", label: "S3", icon: "🪣", health: "s3", render: renderS3 },
+        { key: "lambda", label: "Lambda", icon: "λ", health: "lambda", render: renderLambda },
+        { key: "secrets", label: "Secrets Manager", icon: "🔒", health: "secretsmanager", render: renderSecrets },
+        { key: "kms", label: "KMS", icon: "🔑", health: "kms", render: renderKms },
+        { key: "events", label: "EventBridge", icon: "⏰", health: "events", render: renderEvents },
+        { key: "logs", label: "CloudWatch Logs", icon: "📜", health: "logs", render: renderLogs },
+        { key: "sqs", label: "SQS", icon: "✉️", health: "sqs", render: renderSqs },
+        { key: "sns", label: "SNS", icon: "📣", health: "sns", render: renderSns },
+        { key: "stepfunctions", label: "Step Functions", icon: "🔀", health: "stepfunctions", render: renderSfn },
+        { key: "kinesis", label: "Kinesis", icon: "🌊", health: "kinesis", render: renderKinesis },
+        { key: "iam", label: "IAM", icon: "👤", health: "iam", render: renderIam },
+      ];
+
+      let data = null;
+      let selected = localStorage.getItem("ls-sel") || "overview";
       let timer = null;
+      let lastView = null;
+
+      const isActive = (d, svc) => ["running", "available"].includes((d.health || {})[svc.health]);
 
       async function load() {
         $("status").textContent = "refreshing…";
         try {
-          const res = await fetch("/api/data");
-          const d = await res.json();
-          render(d);
-          $("status").textContent = "updated " + fmtTime(d.meta.generated_at);
+          data = await (await fetch("/api/data")).json();
+          renderAll();
+          $("status").textContent = "updated " + fmtTime(data.meta.generated_at);
         } catch (e) {
           $("status").innerHTML = `<span class="err">error: ${esc(e.message)}</span>`;
         }
       }
 
-      function render(d) {
+      function renderAll() {
+        const d = data;
         $("meta").innerHTML = `
-          <span>endpoint <b>${esc(d.meta.endpoint)}</b></span>
           <span>account <b>${esc(d.meta.account)}</b></span>
           <span>region <b>${esc(d.meta.region)}</b></span>
-          <span>${esc(d.meta.edition || "")} <b>${esc(d.meta.version || "")}</b></span>`;
+          <span>${esc(d.meta.edition || "localstack")} <b>${esc(d.meta.version || "")}</b></span>`;
+        const svc = SERVICES.find((s) => s.key === selected);
+        if (svc && !isActive(d, svc)) selected = "overview"; // a disabled service falls back to Overview
+        renderSidebar(d);
+        renderMain(d);
+      }
 
-        const panels = [];
+      function renderSidebar(d) {
+        const overview = navItem("overview", "▦", "Overview", null, true, selected === "overview", null);
+        const items = SERVICES.map((s) =>
+          navItem(s.key, s.icon, s.label, (d[s.key] || []).length, isActive(d, s), selected === s.key, d.errors && d.errors[s.key])
+        ).join("");
+        $("sidebar").innerHTML = `<div>${overview}</div><div class="side-label">Services</div>${items}`;
+        $("sidebar")
+          .querySelectorAll(".nav-item:not(.disabled)")
+          .forEach((el) => (el.onclick = () => select(el.dataset.k)));
+      }
 
-        // Service health grid
-        const svcs = d.health || {};
-        const names = Object.keys(svcs).sort();
-        const chips =
-          names.map((k) => `<span class="chip ${esc(svcs[k])}">${esc(k)}</span>`).join("") ||
-          `<span class="empty">no health data</span>`;
-        panels.push(card("Service health", names.length, `<div class="chips">${chips}</div>`, true));
+      function navItem(key, icon, label, count, active, sel, err) {
+        const dotCls = err ? "err" : active ? "on" : "off";
+        const cls =
+          "nav-item" + (sel ? " active" : "") + (active || key === "overview" ? "" : " disabled");
+        const badge = count === null || count === undefined ? "" : `<span class="cnt">${count}</span>`;
+        const title = active || key === "overview" ? "" : ' title="service not running"';
+        return `<div class="${cls}" data-k="${key}"${title}>
+          <span class="dot ${dotCls}"></span><span class="ico">${icon}</span>
+          <span class="nm">${esc(label)}</span>${badge}</div>`;
+      }
 
-        // S3 (wide) — buckets with their objects
-        const s3 = d.s3 || [];
-        const s3Body = s3.length
-          ? s3
-              .map(
-                (b) => `<details ${b.objects.length ? "open" : ""}>
-                  <summary>${esc(b.name)}<span class="count">${b.objects.length} obj</span></summary>
-                  ${
-                    b.objects.length
-                      ? table(
-                          ["Key", "Size", "Modified"],
-                          b.objects.map((o) => [mono(o.key), fmtSize(o.size), fmtTime(o.modified)])
-                        )
-                      : `<div class="empty">empty bucket</div>`
-                  }
-                </details>`
-              )
-              .join("")
-          : empty();
-        panels.push(card("S3 buckets", s3.length, s3Body, true));
+      function select(key) {
+        selected = key;
+        localStorage.setItem("ls-sel", key);
+        renderSidebar(data);
+        renderMain(data);
+      }
 
-        // Lambda
-        const lam = d.lambda || [];
-        panels.push(
-          card(
-            "Lambda functions",
-            lam.length,
-            lam.length
-              ? table(
-                  ["Name", "Runtime", "Mem", "Timeout", "Layers"],
-                  lam.map((f) => [
-                    mono(f.name),
-                    esc(f.runtime),
-                    esc(f.memory) + " MB",
-                    esc(f.timeout) + " s",
-                    esc(f.layers),
-                  ])
-                )
-              : empty()
-          )
-        );
-
-        // Secrets Manager (names only)
-        const sec = d.secrets || [];
-        panels.push(
-          card(
-            "Secrets Manager 🔒",
-            sec.length,
-            sec.length
-              ? `<div class="hint">names only — values are never read</div>` +
-                  list(sec.map((s) => mono(s.name)))
-              : empty()
-          )
-        );
-
-        // KMS keys + aliases
-        const kms = d.kms || [];
-        panels.push(
-          card(
-            "KMS keys",
-            kms.length,
-            kms.length
-              ? list(
-                  kms.map(
-                    (k) =>
-                      `${mono(k.id)} ${k.aliases
-                        .map((a) => `<span class="count">${esc(a)}</span>`)
-                        .join(" ")}`
-                  )
-                )
-              : empty()
-          )
-        );
-
-        // EventBridge rules
-        const ev = d.events || [];
-        panels.push(
-          card(
-            "EventBridge rules",
-            ev.length,
-            ev.length
-              ? table(
-                  ["Name", "Schedule", "State"],
-                  ev.map((r) => [mono(r.name), esc(r.schedule || "—"), esc(r.state || "")])
-                )
-              : empty()
-          )
-        );
-
-        // CloudWatch Logs
-        const lg = d.logs || [];
-        panels.push(
-          card(
-            "CloudWatch Logs",
-            lg.length,
-            lg.length
-              ? table(
-                  ["Log group", "Retention"],
-                  lg.map((g) => [mono(g.name), g.retention ? esc(g.retention) + " d" : "∞"])
-                )
-              : empty()
-          )
-        );
-
-        // Simple name-list services
-        const simple = [
-          ["SQS queues", "sqs"],
-          ["SNS topics", "sns"],
-          ["Step Functions", "stepfunctions"],
-          ["Kinesis streams", "kinesis"],
-          ["IAM roles", "iam"],
-        ];
-        for (const [title, key] of simple) {
-          const arr = d[key] || [];
-          panels.push(card(title, arr.length, arr.length ? list(arr.map((x) => mono(x))) : empty()));
+      function renderMain(d) {
+        const m = $("main");
+        const keepScroll = lastView === selected ? m.scrollTop : 0; // hold scroll on refresh
+        let html;
+        if (selected === "overview") {
+          html = renderOverview(d);
+        } else {
+          const svc = SERVICES.find((s) => s.key === selected);
+          const items = d[svc.key] || [];
+          const status = (d.health || {})[svc.health] || "off";
+          const err = d.errors && d.errors[svc.key];
+          const head = `<div class="page-head"><span class="ico">${svc.icon}</span>
+            <h2>${esc(svc.label)}</h2><span class="cnt">${items.length}</span>
+            ${chip(status, ["running", "available"].includes(status) ? "on" : "off")}</div>`;
+          const body = err
+            ? `<div class="card"><div class="body err">⚠ ${esc(err)}</div></div>`
+            : items.length
+            ? svc.render(items)
+            : empty("No " + svc.label + " resources yet.");
+          html = head + body;
         }
+        m.innerHTML = html;
+        m.scrollTop = keepScroll;
+        lastView = selected;
+      }
 
-        // Errors / notes
-        const errs = d.errors || {};
-        const errKeys = Object.keys(errs);
-        if (errKeys.length) {
-          panels.push(
-            card(
-              "Notes",
-              errKeys.length,
-              list(errKeys.map((k) => `<b>${esc(k)}</b>: <span class="err">${esc(errs[k])}</span>`)),
-              true
+      // ── Overview ──────────────────────────────────────────────────────────────
+      function renderOverview(d) {
+        const health = d.health || {};
+        const chips = Object.keys(health)
+          .sort()
+          .map((k) => chip(k + " · " + health[k], ["running", "available"].includes(health[k]) ? "on" : "off"))
+          .join(" ");
+        const stats = SERVICES.map((s) => {
+          const active = isActive(d, s);
+          const n = (d[s.key] || []).length;
+          const onclick = active ? ` onclick="select('${s.key}')"` : "";
+          return `<div class="stat ${active ? "" : "dim"}"${onclick}>
+            <div class="n">${n}</div><div class="l">${s.icon} ${esc(s.label)}</div></div>`;
+        }).join("");
+        const errs = Object.entries(d.errors || {});
+        const errBlock = errs.length
+          ? card(
+              "<h3>Notes</h3>",
+              errs.map(([k, v]) => `<div><b>${esc(k)}</b>: <span class="err">${esc(v)}</span></div>`).join("")
             )
-          );
-        }
+          : "";
+        return `<div class="page-head"><span class="ico">▦</span><h2>Overview</h2></div>
+          <p class="page-sub">Read-only snapshot of the local AWS emulator · endpoint
+            <span class="mono">${esc(d.meta.endpoint)}</span></p>
+          ${card("<h3>Service health</h3>", `<div class="chips">${chips || empty("no health data")}</div>`)}
+          <h3 style="margin:1rem 0 0.5rem">Resources</h3>
+          <div class="stat-grid">${stats}</div>
+          ${errBlock}`;
+      }
 
-        $("app").innerHTML = `<div class="grid">${panels.join("")}</div>`;
+      // ── per-service renderers ───────────────────────────────────────────────────
+      function renderS3(buckets) {
+        return buckets
+          .map((b) =>
+            card(
+              `<h3>🪣 ${esc(b.name)}</h3>
+               <span>${chip(b.object_count + " obj", "info")} ${chip(fmtSize(b.total_size), "info")}</span>`,
+              kv([
+                ["Region", val(b.region)],
+                ["Versioning", chip(b.versioning, b.versioning === "Enabled" ? "on" : "off")],
+                ["Encryption", chip(b.encryption, b.encryption === "None" ? "off" : "on")],
+                ["Created", fmtTime(b.created)],
+              ]) +
+                "<div style='margin-top:.6rem'></div>" +
+                (b.objects.length
+                  ? table(
+                      ["Key", "Size", "Modified", "Class"],
+                      b.objects.map((o) => [
+                        mono(o.key),
+                        `<span class="num">${fmtSize(o.size)}</span>`,
+                        fmtTime(o.modified),
+                        esc(o.storage_class),
+                      ])
+                    )
+                  : empty("empty bucket"))
+            )
+          )
+          .join("");
+      }
+
+      function renderLambda(fns) {
+        return fns
+          .map((f) => {
+            const env = Object.entries(f.env || {});
+            const envBlock = env.length ? kv(env.map(([k, v]) => [k, mono(v)])) : empty("no environment variables");
+            return card(
+              `<h3>λ ${esc(f.name)}</h3><span>${chip(f.runtime || "?", "info")}</span>`,
+              kv([
+                ["Handler", val(f.handler)],
+                ["Memory", val(f.memory) + " MB"],
+                ["Timeout", val(f.timeout) + " s"],
+                ["Code size", fmtSize(f.code_size)],
+                ["Layers", val(f.layers)],
+                ["Role", val(f.role)],
+                ["Modified", fmtTime(f.modified)],
+                ["Description", val(f.description)],
+              ]) +
+                `<div class="hint" style="margin-top:.7rem">Environment (values redacted for secret-like keys)</div>` +
+                envBlock
+            );
+          })
+          .join("");
+      }
+
+      function renderKms(keys) {
+        return keys
+          .map((k) =>
+            card(
+              `<h3>🔑 ${esc(k.id)}</h3><span>${(k.aliases || []).map((a) => chip(a, "warn")).join(" ")}</span>`,
+              kv([
+                ["State", chip(k.state || "?", k.state === "Enabled" ? "on" : "off")],
+                ["Key spec", val(k.key_spec)],
+                ["Usage", val(k.key_usage)],
+                ["Rotation", k.rotation_enabled === null ? "—" : bool(k.rotation_enabled)],
+                ["Created", fmtTime(k.created)],
+                ["Description", val(k.description)],
+              ])
+            )
+          )
+          .join("");
+      }
+
+      function renderSecrets(secs) {
+        return (
+          `<div class="hint">🔒 Names + metadata only — secret <b>values are never read</b>.</div>` +
+          table(
+            ["Name", "Description", "KMS key", "Rotation", "Created", "Modified"],
+            secs.map((s) => [
+              mono(s.name),
+              val(s.description),
+              mono(s.kms_key_id),
+              bool(s.rotation_enabled),
+              fmtTime(s.created),
+              fmtTime(s.modified),
+            ])
+          )
+        );
+      }
+
+      function renderEvents(rules) {
+        return rules
+          .map((r) =>
+            card(
+              `<h3>⏰ ${esc(r.name)}</h3>${chip(r.state || "?", r.state === "ENABLED" ? "on" : "off")}`,
+              kv([
+                ["Schedule", mono(r.schedule || "—")],
+                ["Description", val(r.description)],
+                ["ARN", mono(r.arn)],
+              ]) +
+                `<div class="hint" style="margin-top:.6rem">Targets (${r.targets.length})</div>` +
+                (r.targets.length
+                  ? table(["Id", "ARN"], r.targets.map((t) => [mono(t.id), mono(t.arn)]))
+                  : empty("no targets"))
+            )
+          )
+          .join("");
+      }
+
+      function renderLogs(groups) {
+        return table(
+          ["Log group", "Retention", "Stored", "Streams", "Created"],
+          groups.map((g) => [
+            mono(g.name),
+            g.retention ? esc(g.retention) + " d" : "∞",
+            `<span class="num">${fmtSize(g.stored_bytes)}</span>`,
+            `<span class="num">${val(g.streams)}</span>`,
+            fmtTime(g.created),
+          ])
+        );
+      }
+
+      function renderSqs(qs) {
+        return table(
+          ["Queue", "Available", "In-flight", "URL"],
+          qs.map((q) => [
+            mono(q.name),
+            `<span class="num">${val(q.messages_available)}</span>`,
+            `<span class="num">${val(q.messages_in_flight)}</span>`,
+            mono(q.url),
+          ])
+        );
+      }
+
+      function renderSns(topics) {
+        return table(
+          ["Topic", "Subscriptions", "ARN"],
+          topics.map((t) => [mono(t.name), `<span class="num">${val(t.subscriptions)}</span>`, mono(t.arn)])
+        );
+      }
+
+      function renderSfn(machines) {
+        return table(
+          ["Name", "Type", "Created", "ARN"],
+          machines.map((m) => [mono(m.name), esc(m.type || "—"), fmtTime(m.created), mono(m.arn)])
+        );
+      }
+
+      function renderKinesis(streams) {
+        return table(
+          ["Stream", "Status", "Shards", "Retention"],
+          streams.map((s) => [
+            mono(s.name),
+            chip(s.status || "?", s.status === "ACTIVE" ? "on" : "off"),
+            `<span class="num">${val(s.shards)}</span>`,
+            `<span class="num">${val(s.retention_hours)} h</span>`,
+          ])
+        );
+      }
+
+      function renderIam(roles) {
+        return table(
+          ["Role", "Inline", "Attached", "Created", "ARN"],
+          roles.map((r) => [
+            mono(r.name) + (r.description ? `<div class="hint">${esc(r.description)}</div>` : ""),
+            `<span class="num">${val(r.inline_policies)}</span>`,
+            `<span class="num">${val(r.attached_policies)}</span>`,
+            fmtTime(r.created),
+            mono(r.arn),
+          ])
+        );
       }
 
       function setAuto(on) {
-        if (timer) {
-          clearInterval(timer);
-          timer = null;
-        }
+        if (timer) { clearInterval(timer); timer = null; }
         if (on) timer = setInterval(load, 10000);
         localStorage.setItem("ls-auto", on ? "1" : "0");
       }
