@@ -38,3 +38,19 @@ output "ingest_schedule_rule" {
   description = "Name of the EventBridge schedule rule."
   value       = module.eventbridge_ingest.rule_name
 }
+
+# ── Stage 2: catalog + query (null when enable_catalog=false, e.g. LocalStack) ──
+output "glue_database" {
+  description = "Glue database name (query as <db>.bronze_prices); null on LocalStack."
+  value       = one(module.glue_catalog[*].database_name)
+}
+
+output "athena_workgroup" {
+  description = "Athena workgroup name (100 MB cap + results location); null on LocalStack."
+  value       = one(module.athena[*].workgroup_name)
+}
+
+output "athena_results_bucket" {
+  description = "Bucket holding Athena query results; null on LocalStack."
+  value       = one(module.athena_results[*].bucket_id)
+}

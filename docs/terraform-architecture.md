@@ -7,7 +7,7 @@
 > |                          |                                                                                                                                                                                                                      |
 > | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 > | **Scope**          | Everything under[`infra/`](../infra/) — the root config and the reusable modules.                                                                                                                                    |
-> | **Current state**  | **Stage 1 — deployed to AWS** — storage + batch-ingest; remote S3 state backend.                                                                                                                                                    |
+> | **Current state**  | **Stage 2 — deployed to AWS** — storage + batch-ingest + Glue catalog & Athena (catalog + first SQL); catalog gated off for LocalStack (DuckDB twin).                                                                                                                                                    |
 > | **Companion docs** | System/data overview:[architecture.md](architecture.md) · IaC conventions: [`.claude/skills/iac-terraform`](../.claude/skills/iac-terraform/) · Setup: [plan/04_INFRASTRUCTURE_SETUP.md](plan/04_INFRASTRUCTURE_SETUP.md) |
 
 ## Contents
@@ -121,16 +121,16 @@ that infrastructure (data in and out) is done by the running application, **neve
 | File                               | Role                                                                                                                                                                                                                                                   |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [main.tf](../infra/main.tf)           | **Providers + global tags.** Declares `aws`/`random`/`archive`, pins versions, sets `default_tags`. **No resources.**                                                                                                              |
-| [variables.tf](../infra/variables.tf) | **The knobs:** `region` (`us-east-1`), `environment` (`dev`), `owner` (required), `awswrangler_layer_arn` (`""`), `ingest_schedule` (`rate(1 hour)`). Real values come from `terraform.tfvars` (gitignored) or `TF_VAR_*`. |
+| [variables.tf](../infra/variables.tf) | **The knobs:** `region` (`us-east-1`), `environment` (`dev`), `owner` (required), `awswrangler_layer_arn` (`""`), `ingest_schedule` (`rate(1 hour)`), `enable_catalog` (`true`; `false` skips Glue/Athena for LocalStack). Real values come from `terraform.tfvars` (gitignored) or `TF_VAR_*`. |
 | [storage.tf](../infra/storage.tf)     | **Storage foundation:** `random_id` suffix → `module.kms` → `module.s3` (×3 via `for_each`).                                                                                                                                          |
 | [ingest.tf](../infra/ingest.tf)       | **Batch-ingest component:** `module.secret` → `module.iam_ingest` → `archive_file` → `module.lambda_ingest` → `module.eventbridge_ingest`.                                                                                         |
-| [outputs.tf](../infra/outputs.tf)     | **Post-apply readout:** `bucket_names`, `kms_key_arn`, `secret_arn`, `ingest_role_arn`, `ingest_function_name`, `ingest_schedule_rule`.                                                                                              |
+| [outputs.tf](../infra/outputs.tf)     | **Post-apply readout:** `bucket_names`, `kms_key_arn`, `secret_arn`, `ingest_role_arn`, `ingest_function_name`, `ingest_schedule_rule`; **+ Stage 2:** `glue_database`, `athena_workgroup`, `athena_results_bucket` (null when catalog off).                                                                                              |
 
 ---
 
 ## 5. Module catalogue + contracts
 
-Six modules today. Each row below is the module's **contract**: what you pass in (inputs), what it
+Eight modules today (Stage 2 added **`glue_catalog`** + **`athena`**). Each row below is the module's **contract**: what you pass in (inputs), what it
 builds (resources), what it hands back (outputs).
 
 ### 5.1 Catalogue (one-line responsibility)
@@ -189,6 +189,22 @@ when the package actually differs.
 | Inputs                                                                                 | Outputs                       |
 | -------------------------------------------------------------------------------------- | ----------------------------- |
 | `name` · `schedule_expression` · `target_lambda_arn` · `target_lambda_name` | `rule_arn` · `rule_name` |
+
+### 5.8 `glue_catalog` *(Stage 2)*
+
+| Inputs | Outputs |
+| ------ | ------- |
+| `database_name` · `table_name` · `data_location` (s3 prefix) · `columns` (list of `{name,type}`) · `projection_date_start` | `database_name` · `table_name` |
+
+Metadata only (schema-on-read) — points at the Bronze Parquet and stores zero rows. **Partition projection** computes `snapshot_date`/`snapshot_hour` from the object path → **no crawler ($0), zero-maintenance**. Column types must match the Parquet pinned in `ingest.py` `_BRONZE_DTYPES`.
+
+### 5.9 `athena` *(Stage 2)*
+
+| Inputs | Outputs |
+| ------ | ------- |
+| `workgroup_name` · `results_location` (s3) · `kms_key_arn` · `bytes_scanned_cutoff` (≥10 MB; we use **100 MB**) | `workgroup_name` |
+
+`enforce_workgroup_configuration = true` so clients can't bypass the scan cap or the results location. Results are SSE-KMS-encrypted with the lake CMK.
 
 ---
 
@@ -345,7 +361,8 @@ What each stage adds to `infra/`. Append a row when a stage lands; keep §4–§
 | ------------ | -------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | **0**  | Foundation                                               | `main.tf`, `variables.tf`, `outputs.tf` | Provider +`default_tags` skeleton — **no resources**                                           | ✅ done                                            |
 | **1**  | Storage + batch ingest (Bronze)                          | `storage.tf`, `ingest.tf`                 | `kms`, `s3` (×3: bronze/silver/gold), `secret`, `iam_lambda`, `lambda`, `eventbridge`      | ✅ DEPLOYED to AWS (acct 724166961779); LocalStack create/update/destroy demoed |
-| **2+** | Transforms · streaming · RAG · orchestration · CI/CD | _tbd_                                       | _Not yet built — appended when the stage lands (e.g. Glue/Athena/Iceberg, Kinesis, Step Functions)._ | ⏳ planned                                         |
+| **2**  | Catalog + first SQL                                      | `catalog.tf`                              | `glue_catalog` (DB + `bronze_prices` table, partition projection), `athena` (workgroup, 100 MB cap), `athena_results` bucket — all gated by `enable_catalog` | ✅ DEPLOYED to AWS; LocalStack via the DuckDB twin (catalog gated off) |
+| **3+** | Transforms · streaming · RAG · orchestration · CI/CD | _tbd_                                       | _Not yet built (e.g. Iceberg Silver/Gold, dbt, Kinesis, Step Functions)._ | ⏳ planned                                         |
 
 ### Resource names created in Stage 1 (`environment = dev`)
 
@@ -355,6 +372,14 @@ What each stage adds to `infra/`. Append a row when a stage lands; keep §4–§
 - `marketpulse-dev-role-lambda-ingest` (+ inline `…-policy`)
 - `marketpulse-dev-lambda-batch-ingest` (+ log group `/aws/lambda/marketpulse-dev-lambda-batch-ingest`)
 - `marketpulse-dev-rule-ingest-schedule`
+
+### Resource names created in Stage 2 (`environment = dev`)
+
+- Glue database `marketpulse_dev` + table `bronze_prices` (partition projection on `snapshot_date`/`snapshot_hour`; no crawler)
+- Athena workgroup `marketpulse-dev-athena-analytics` (100 MB per-query scan cap, SSE-KMS results)
+- `marketpulse-dev-bucket-athena-results-<hex>` (dedicated, encrypted results bucket)
+
+The Stage-2 catalog is gated by **`enable_catalog`** (default `true` for AWS; pass `-var="enable_catalog=false"` for LocalStack, where Glue/Athena are Pro — the local query twin is **DuckDB**). `moved` blocks migrate the count-gate state with no recreate. For local runs, force a local state file via a gitignored `infra/localstack_backend_override.tf` (`backend "local" {}`) — `tflocal` otherwise reads the real AWS state (see [stage-2 doc](stages/stage-2-catalog-first-sql.md)).
 
 ### Remote state backend (Stage 1)
 
@@ -374,7 +399,8 @@ infra/
 ├── variables.tf             region · environment · owner · awswrangler_layer_arn · ingest_schedule
 ├── storage.tf               random_id + module.kms + module.s3 (×3)
 ├── ingest.tf                module.secret + iam_ingest + archive_file + lambda_ingest + eventbridge_ingest
-├── outputs.tf               bucket_names · kms_key_arn · secret_arn · role/function/rule
+├── catalog.tf               (Stage 2) athena_results bucket + glue_catalog + athena — gated by enable_catalog
+├── outputs.tf               bucket_names · kms/secret/role/function/rule · glue_database · athena_workgroup · athena_results_bucket
 ├── .terraform.lock.hcl      provider version locks (committed)
 └── modules/
     ├── kms/                 CMK + alias
@@ -382,7 +408,9 @@ infra/
     ├── secret/              Secrets Manager container (value out-of-band)
     ├── iam_lambda/          least-privilege role + inline policy
     ├── lambda/              function + log group
-    └── eventbridge/         schedule rule + target + invoke permission
+    ├── eventbridge/         schedule rule + target + invoke permission
+    ├── glue_catalog/        (Stage 2) Glue database + bronze_prices table (partition projection)
+    └── athena/              (Stage 2) Athena workgroup (100 MB scan cap) + SSE-KMS results
 ```
 
 Each module folder is `main.tf` (resources) + `variables.tf` (inputs) + `outputs.tf` (returns).

@@ -114,6 +114,27 @@ def marketdata_secret_name() -> str:
     )
 
 
+def bronze_data_location() -> str:
+    """Return the S3 URI of the Bronze prices prefix (the DuckDB twin reads this).
+
+    Returns:
+        e.g. ``"s3://marketpulse-dev-bucket-bronze-…/prices"`` (no trailing slash).
+    """
+    return f"s3://{bronze_bucket()}/prices"
+
+
+def athena_database() -> str:
+    """Return the Glue/Athena database name (default ``marketpulse_dev``; env-overridable)."""
+    return (os.getenv("ATHENA_DATABASE") or "").strip() or f"{PROJECT}_{environment()}"
+
+
+def athena_workgroup() -> str:
+    """Return the Athena workgroup name (default ``marketpulse-dev-athena-analytics``)."""
+    return (os.getenv("ATHENA_WORKGROUP") or "").strip() or (
+        f"{PROJECT}-{environment()}-athena-analytics"
+    )
+
+
 def get_query_engine() -> QueryEngine:
     """Return the active QueryEngine backend (Athena on ``aws``, DuckDB on ``local``)."""
     if active_env() == "aws":

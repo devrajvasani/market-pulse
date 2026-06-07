@@ -26,3 +26,9 @@ variable "ingest_schedule" {
   type        = string
   default     = "rate(1 hour)"
 }
+
+variable "enable_catalog" {
+  description = "Build the Stage 2 Glue catalog + Athena workgroup + results bucket. Set false for LocalStack (Glue/Athena are LocalStack Pro; the local query twin is DuckDB)."
+  type        = bool
+  default     = true
+}
