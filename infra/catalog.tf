@@ -47,6 +47,10 @@ module "athena_results" {
   bucket_name   = "${local.name_prefix}-bucket-athena-results-${random_id.bucket_suffix.hex}"
   kms_key_arn   = module.kms.key_arn
   force_destroy = true # dev: clean teardown (results are ephemeral + re-creatable)
+  # Pin retention explicitly: query results are a transient data class, distinct from the
+  # durable lake, so they shouldn't silently track a future change to the module default.
+  noncurrent_version_expiration_days     = 7
+  abort_incomplete_multipart_upload_days = 7
 }
 
 # Glue database + the manually-defined Bronze prices table (partition projection, no crawler).

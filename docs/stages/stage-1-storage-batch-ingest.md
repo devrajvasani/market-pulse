@@ -42,6 +42,16 @@
 
 **Verified live** (`snapshot_hour=22`): 26 columns read back with correct types (`market_cap_rank` `Int64`, amounts `double`); `max_supply` null for ETH handled cleanly; `price_change_pct_7d` BTC −16.2% / ETH −20.6%.
 
+## Coin universe & retention (widened 2026-06-08, pre-Stage-3)
+
+**Top-100 by market cap.** Stage 1 shipped a fixed 2-coin list (BTC + ETH); to give Stage 3 (OHLC / rolling / volatility / cross-sectional analytics) and Stage 5 (RAG) a meaningful cross-section, the default universe is now the **top 100 coins by market cap**, fetched in one CoinGecko call (`order=market_cap_desc&per_page=100&page=1`). `coingecko.py` gains `fetch_top_markets(count)` (validated `1..250`, the per-page max) alongside the by-id `fetch_markets` — both share one validated `_markets()` helper. `ingest.run_ingestion` fetches top-N by default; override with the **`INGEST_TOP_N`** env var, or pass explicit `coins=[...]` to bypass top-N. Schema, partitioning and idempotency are unchanged — just ~100 rows per hourly snapshot instead of 2.
+
+**Cost is unaffected.** A snapshot is ≈30 KB Parquet (≈15 KB fixed + ~175 B/coin); a year of hourly top-100 snapshots is well under 1 GB → cents of S3. Athena's **10 MB-per-query floor** dominates either way, so per-query cost stays ~$0. The project ceiling is COMPUTE-driven (Glue DPU-hrs, Kinesis shard-hrs, Bedrock tokens), not row count.
+
+**Noncurrent-version lifecycle.** More coins + idempotent same-hour re-writes mean the versioned buckets would otherwise accrue superseded versions indefinitely. The `s3` module now adds an `aws_s3_bucket_lifecycle_configuration` to **every** lake bucket (bronze/silver/gold + athena-results): expire **noncurrent** versions after 7 days and abort incomplete multipart uploads after 7 days. **Current object versions are never touched** — only superseded history and orphaned upload parts. Tunable via `noncurrent_version_expiration_days` / `abort_incomplete_multipart_upload_days` (both default 7).
+
+**Apply:** the Lambda code redeploy (`terraform apply` — new `source_code_hash`) switches the live hourly pipeline to top-100; the lifecycle rule is a new resource added in-place to the existing buckets (`+`, non-destructive). **Verified:** `ruff` ✓ · `ruff format` ✓ · 36 tests ✓ (3 new: top-N URL shape, `1..250` validation, explicit-coins path) · `terraform validate` ✓.
+
 ## The full IaC lifecycle (learned hands-on)
 - **LocalStack (free):** `tflocal apply` (create `+23`) → in-place **update** (`~` schedule) → **destroy**.
 - **Real AWS (acct `724166961779`, us-east-1):** bootstrapped the remote backend → cost + infra review → `terraform apply` (`+23`) → Lambda **verified end-to-end** (secret read → CoinGecko → SSE-KMS Parquet in bronze, `StatusCode 200`, `rows=2`).

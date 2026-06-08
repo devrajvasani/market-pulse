@@ -34,3 +34,27 @@ resource "aws_s3_bucket_versioning" "this" {
     status = "Enabled"
   }
 }
+
+# Trim version history + abandoned multipart uploads so they don't accrue storage cost as
+# the coin universe (and idempotent re-writes) grow. Current object versions are NEVER
+# touched — only superseded (noncurrent) versions past the window, plus parts left behind
+# by uploads that never completed.
+resource "aws_s3_bucket_lifecycle_configuration" "this" {
+  bucket     = aws_s3_bucket.this.id
+  depends_on = [aws_s3_bucket_versioning.this] # noncurrent expiry requires versioning enabled
+
+  rule {
+    id     = "expire-noncurrent-versions-and-abort-mpu"
+    status = "Enabled"
+
+    filter {} # whole bucket
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.noncurrent_version_expiration_days
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = var.abort_incomplete_multipart_upload_days
+    }
+  }
+}
