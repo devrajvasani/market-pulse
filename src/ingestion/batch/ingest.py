@@ -18,7 +18,9 @@ from src.ingestion.batch.coingecko import CoinGeckoClient
 
 logger = get_logger(__name__)
 
-DEFAULT_COINS = ["bitcoin", "ethereum"]
+# Default universe: the top-N coins by market cap (one CoinGecko page, <=250). Override
+# per-deploy with the INGEST_TOP_N env var, or pass explicit `coins` to bypass top-N.
+DEFAULT_TOP_N = 100
 DEFAULT_QUOTE_CURRENCY = "usd"
 
 # Bronze is partitioned by capture time so every hourly snapshot is retained and a
@@ -148,6 +150,7 @@ def _to_dataframe(
 
 def run_ingestion(
     coins: list[str] | None = None,
+    top_n: int | None = None,
     quote_currency: str = DEFAULT_QUOTE_CURRENCY,
     captured_at: datetime | None = None,
 ) -> dict:
@@ -157,19 +160,25 @@ def run_ingestion(
     duplicates — while earlier hours are preserved (L.3).
 
     Args:
-        coins: CoinGecko coin IDs (default BTC + ETH).
+        coins: explicit CoinGecko coin IDs to fetch. If omitted, fetch the top ``top_n``
+            coins by market cap (the default universe).
+        top_n: number of top-by-market-cap coins to fetch when ``coins`` is omitted
+            (default: the ``INGEST_TOP_N`` env var, else ``DEFAULT_TOP_N``).
         quote_currency: quote currency for the request.
         captured_at: override the capture instant (default now, UTC).
 
     Returns:
-        A summary dict: rows written, bucket, snapshot partition, coins.
+        A summary dict: rows written, bucket, snapshot partition.
 
     Raises:
         IngestionError: on fetch or write failure.
     """
-    coins = coins or DEFAULT_COINS
     client = CoinGeckoClient(_read_api_key())
-    records = client.fetch_markets(coins, vs_currency=quote_currency)
+    if coins:
+        records = client.fetch_markets(coins, vs_currency=quote_currency)
+    else:
+        count = top_n or int(os.getenv("INGEST_TOP_N") or DEFAULT_TOP_N)
+        records = client.fetch_top_markets(count, vs_currency=quote_currency)
     frame = _to_dataframe(records, quote_currency, captured_at)
 
     bucket = settings.bronze_bucket()
@@ -197,7 +206,6 @@ def run_ingestion(
         "bucket": bucket,
         "snapshot_date": snapshot_date,
         "snapshot_hour": snapshot_hour,
-        "coins": coins,
     }
     logger.info("Wrote prices to Bronze", extra=summary)
     return summary

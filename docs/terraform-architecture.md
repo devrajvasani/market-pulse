@@ -111,7 +111,7 @@ that infrastructure (data in and out) is done by the running application, **neve
 | **State**                     | `*.tfstate` holds resource attributes (and can hold secret values in plaintext) → **gitignored**. It's Terraform's memory of "what is actually built".          | [.gitignore](../.gitignore)                               |
 | **Secrets — the state trap** | Create the secret**container** in TF; set the **value out-of-band** (Console/CLI) so it never enters state. Never put a secret value in `.tf`/`.tfvars`. | [modules/secret](../infra/modules/secret/main.tf)         |
 | **IAM**                       | One role per component; only the specific actions on the specific ARNs.**No wildcards**, no `Resource: "*"`, no broad managed policies.                          | [modules/iam_lambda](../infra/modules/iam_lambda/main.tf) |
-| **Encryption / exposure**     | KMS (CMK) on buckets + secret;**block all public access**; versioning on.                                                                                          | [modules/s3](../infra/modules/s3/main.tf)                 |
+| **Encryption / exposure**     | KMS (CMK) on buckets + secret;**block all public access**; versioning + lifecycle expiry on.                                                                                          | [modules/s3](../infra/modules/s3/main.tf)                 |
 | **Apply authority**           | I write + run `terraform plan` (read-only). **Only the user runs `apply`/`destroy`.** Locally, `tflocal apply` runs against LocalStack for free.           | CLAUDE.md hard rule                                    |
 
 ---
@@ -138,7 +138,7 @@ builds (resources), what it hands back (outputs).
 | Module                                           | Single responsibility                                                                      | Resources                                                                                               |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | [kms](../infra/modules/kms/main.tf)                 | One CMK (auto-rotated, 7-day delete window) encrypting the whole lake + the secret.        | `aws_kms_key`, `aws_kms_alias`                                                                      |
-| [s3](../infra/modules/s3/main.tf)                   | One private, SSE-KMS-encrypted, versioned bucket. Reused per layer.                        | `aws_s3_bucket` + `public_access_block` + `server_side_encryption_configuration` + `versioning` |
+| [s3](../infra/modules/s3/main.tf)                   | One private, SSE-KMS-encrypted, versioned bucket with lifecycle expiry of old versions. Reused per layer.                        | `aws_s3_bucket` + `public_access_block` + `server_side_encryption_configuration` + `versioning` + `lifecycle_configuration` |
 | [secret](../infra/modules/secret/main.tf)           | The secret**container** only (KMS-encrypted, 7-day recovery). Value set out-of-band. | `aws_secretsmanager_secret`                                                                           |
 | [iam_lambda](../infra/modules/iam_lambda/main.tf)   | The ingest Lambda's least-privilege identity (trust + inline policy, no wildcards).        | `aws_iam_role` + `aws_iam_role_policy`                                                              |
 | [lambda](../infra/modules/lambda/main.tf)           | The function itself + its log group (pre-created so retention is finite).                  | `aws_lambda_function` + `aws_cloudwatch_log_group`                                                  |
@@ -154,7 +154,9 @@ builds (resources), what it hands back (outputs).
 
 | Inputs                                                                        | Outputs                         |
 | ----------------------------------------------------------------------------- | ------------------------------- |
-| `bucket_name` — globally-unique name · `kms_key_arn` — CMK for SSE-KMS · `force_destroy` (default `false`; `true` on lake buckets for clean teardown) | `bucket_id` · `bucket_arn` |
+| `bucket_name` — globally-unique name · `kms_key_arn` — CMK for SSE-KMS · `force_destroy` (default `false`; `true` on lake buckets for clean teardown) · `noncurrent_version_expiration_days` / `abort_incomplete_multipart_upload_days` (both default `7`) | `bucket_id` · `bucket_arn` |
+
+Five resources: bucket + public-access-block + SSE-KMS + versioning + **lifecycle** (expire _noncurrent_ versions & abort incomplete multipart uploads after 7 days). Current object versions are never expired — only superseded history and orphaned upload parts, so version growth from more coins / idempotent re-writes can't accrue cost.
 
 ### 5.4 `secret`
 
@@ -404,7 +406,7 @@ infra/
 ├── .terraform.lock.hcl      provider version locks (committed)
 └── modules/
     ├── kms/                 CMK + alias
-    ├── s3/                  private + SSE-KMS + versioned bucket
+    ├── s3/                  private + SSE-KMS + versioned bucket + lifecycle expiry
     ├── secret/              Secrets Manager container (value out-of-band)
     ├── iam_lambda/          least-privilege role + inline policy
     ├── lambda/              function + log group

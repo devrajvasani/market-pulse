@@ -108,6 +108,15 @@ def test_fetch_markets_rejects_bad_payload(monkeypatch):
         CoinGeckoClient("CG-test").fetch_markets(["bitcoin"])
 
 
+def test_fetch_markets_rejects_empty_list(monkeypatch):
+    # a valid-but-empty result (e.g. all ids unknown) must fail loudly, not write 0 rows
+    monkeypatch.setattr(
+        "src.ingestion.batch.coingecko.urllib.request.urlopen", lambda *a, **k: _FakeUrlopen([])
+    )
+    with pytest.raises(IngestionError):
+        CoinGeckoClient("CG-test").fetch_markets(["nonexistent-coin"])
+
+
 def test_fetch_markets_fails_fast_on_4xx(monkeypatch):
     import urllib.error
 
@@ -121,6 +130,29 @@ def test_fetch_markets_fails_fast_on_4xx(monkeypatch):
     with pytest.raises(IngestionError):
         CoinGeckoClient("CG-test").fetch_markets(["bitcoin"])
     assert calls["n"] == 1  # client error -> no retry
+
+
+def test_fetch_top_markets_requests_top_n(monkeypatch):
+    seen: dict = {}
+
+    def _capture(request, *a, **k):
+        seen["url"] = request.full_url
+        return _FakeUrlopen(_SAMPLE)
+
+    monkeypatch.setattr("src.ingestion.batch.coingecko.urllib.request.urlopen", _capture)
+    CoinGeckoClient("CG-test").fetch_top_markets(100)
+    # top-N by descending market cap, one page, with the 1h/24h/7d windows
+    assert "order=market_cap_desc" in seen["url"]
+    assert "per_page=100" in seen["url"]
+    assert "page=1" in seen["url"]
+    assert "price_change_percentage=1h%2C24h%2C7d" in seen["url"]
+
+
+def test_fetch_top_markets_validates_count():
+    client = CoinGeckoClient("CG-test")
+    for bad in (0, 251, -5):  # outside CoinGecko's 1..250 per-page bound
+        with pytest.raises(IngestionError):
+            client.fetch_top_markets(bad)
 
 
 # ── Transform ─────────────────────────────────────────────────────────────────
@@ -174,7 +206,7 @@ def test_run_ingestion_writes_idempotent_hourly_partition(monkeypatch):
     monkeypatch.setenv("MARKETDATA_API_KEY", "CG-test")
     monkeypatch.setenv("BRONZE_BUCKET", "marketpulse-dev-bucket-bronze-test")
     monkeypatch.setattr(
-        CoinGeckoClient, "fetch_markets", lambda self, coin_ids, vs_currency="usd": _SAMPLE
+        CoinGeckoClient, "fetch_top_markets", lambda self, count, vs_currency="usd": _SAMPLE
     )
     captured_kwargs: dict = {}
     monkeypatch.setattr(
@@ -194,6 +226,22 @@ def test_run_ingestion_writes_idempotent_hourly_partition(monkeypatch):
     # column types are pinned so an all-null partition can't break the Glue table
     assert captured_kwargs["dtype"] == ingest._BRONZE_DTYPES
     assert captured_kwargs["dtype"]["market_cap_rank"] == "bigint"
+
+
+def test_run_ingestion_explicit_coins_uses_fetch_markets(monkeypatch):
+    monkeypatch.setenv("MARKETDATA_API_KEY", "CG-test")
+    monkeypatch.setenv("BRONZE_BUCKET", "marketpulse-dev-bucket-bronze-test")
+    used: dict = {}
+
+    def _fake_fetch_markets(self, coin_ids, vs_currency="usd"):
+        used["ids"] = coin_ids
+        return _SAMPLE
+
+    monkeypatch.setattr(CoinGeckoClient, "fetch_markets", _fake_fetch_markets)
+    monkeypatch.setattr("src.ingestion.batch.ingest.wr.s3.to_parquet", lambda **kw: None)
+
+    ingest.run_ingestion(coins=["bitcoin", "ethereum"], captured_at=_CAPTURED_AT)
+    assert used["ids"] == ["bitcoin", "ethereum"]  # an explicit list bypasses top-N
 
 
 # ── CLI entry ─────────────────────────────────────────────────────────────────
