@@ -50,11 +50,11 @@
 
 **Noncurrent-version lifecycle.** More coins + idempotent same-hour re-writes mean the versioned buckets would otherwise accrue superseded versions indefinitely. The `s3` module now adds an `aws_s3_bucket_lifecycle_configuration` to **every** lake bucket (bronze/silver/gold + athena-results): expire **noncurrent** versions after 7 days and abort incomplete multipart uploads after 7 days. **Current object versions are never touched** — only superseded history and orphaned upload parts. Tunable via `noncurrent_version_expiration_days` / `abort_incomplete_multipart_upload_days` (both default 7).
 
-**Apply:** the Lambda code redeploy (`terraform apply` — new `source_code_hash`) switches the live hourly pipeline to top-100; the lifecycle rule is a new resource added in-place to the existing buckets (`+`, non-destructive). **Verified:** `ruff` ✓ · `ruff format` ✓ · 36 tests ✓ (3 new: top-N URL shape, `1..250` validation, explicit-coins path) · `terraform validate` ✓.
+**Apply:** the Lambda code redeploy (`terraform apply` — new `source_code_hash`) switches the live hourly pipeline to top-100; the lifecycle rule is a new resource added in-place to the existing buckets (`+`, non-destructive). **Verified:** `ruff` ✓ · `ruff format` ✓ · 42 tests ✓ (widen + a follow-up hardening pass: top-N URL/boundaries, `1..250` validation, explicit-coins, empty-result, `INGEST_TOP_N` override, retry/backoff) · `terraform validate` ✓.
 
 ## The full IaC lifecycle (learned hands-on)
 - **LocalStack (free):** `tflocal apply` (create `+23`) → in-place **update** (`~` schedule) → **destroy**.
-- **Real AWS (acct `724166961779`, us-east-1):** bootstrapped the remote backend → cost + infra review → `terraform apply` (`+23`) → Lambda **verified end-to-end** (secret read → CoinGecko → SSE-KMS Parquet in bronze, `StatusCode 200`, `rows=2`).
+- **Real AWS (acct `724166961779`, us-east-1):** bootstrapped the remote backend → cost + infra review → `terraform apply` (`+23`) → Lambda **verified end-to-end** (secret read → CoinGecko → SSE-KMS Parquet in bronze, `StatusCode 200`, `rows=2` — the original BTC+ETH cut, now 100 per snapshot; see *Coin universe & retention* above).
 
 ## LocalStack ↔ Live AWS — the config swap (core concept)
 

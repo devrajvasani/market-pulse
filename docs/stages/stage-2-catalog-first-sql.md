@@ -143,7 +143,7 @@ The SQL is **identical** across engines — DuckDB registers `bronze_prices` as 
 
 ## Pre-deploy reviews
 - **cost-reviewer:** GO — **~$0** (Glue Catalog free tier; manual table = no crawler; Athena KB scans, 100 MB cap; results bucket KB).
-- **infra-reviewer:** raised 2 "blockers" — **both disproven by the Console-first walkthrough**: (1) the `marketpulse-admin` user *did* write SSE-KMS Athena results (KMS access fine); (2) integer-projection-on-string-partition returned **all** partitions (count 26 across every hour). Applied: log the exception class in both adapters. **Deferred:** Glue *catalog-metadata* encryption (account-wide; metadata is non-sensitive field names); the `athena-results` lifecycle rule.
+- **infra-reviewer:** raised 2 "blockers" — **both disproven by the Console-first walkthrough**: (1) the `marketpulse-admin` user *did* write SSE-KMS Athena results (KMS access fine); (2) integer-projection-on-string-partition returned **all** partitions (count 26 across every hour). Applied: log the exception class in both adapters. **Deferred:** Glue *catalog-metadata* encryption (account-wide; metadata is non-sensitive field names). *(The `athena-results` lifecycle rule, also deferred here, shipped in the Stage-1 top-100 widening 2026-06-08.)*
 
 ## Key choices
 - **Manual table + partition projection** (no crawler) — $0, deterministic, zero-maintenance.
@@ -153,6 +153,6 @@ The SQL is **identical** across engines — DuckDB registers `bronze_prices` as 
 - **`enable_catalog` gate + local-backend override** — one Terraform, clean local/AWS separation.
 
 ## Left to do (deferred)
-- **S3 noncurrent-version lifecycle rule** (esp. `athena-results`) — before scaling / widening coins.
+- ✅ **S3 noncurrent-version lifecycle rule** (esp. `athena-results`) — **done** in the Stage-1 top-100 widening (2026-06-08): the `s3` module expires noncurrent versions + aborts incomplete MPUs (7d) on all 4 buckets.
 - **Glue catalog-metadata encryption** (`aws_glue_data_catalog_encryption_settings`) — optional, account-wide.
 - **Scoped Athena query IAM role** — Stage 5 (the assistant Lambda); Stage 2 queries run as the `marketpulse-admin` user.
