@@ -90,6 +90,29 @@ def _read_api_key() -> str:
         raise IngestionError(f"Secret '{secret_name}' has no 'api_key' field: {exc}") from exc
 
 
+def _resolve_top_n(top_n: int | None) -> int:
+    """Resolve the top-N coin count: explicit arg > ``INGEST_TOP_N`` env > ``DEFAULT_TOP_N``.
+
+    Args:
+        top_n: explicit override; if ``None``, fall back to the env var, then the default.
+
+    Returns:
+        The number of top-by-market-cap coins to fetch (range-checked later by the client).
+
+    Raises:
+        IngestionError: if ``INGEST_TOP_N`` is set but is not a valid integer.
+    """
+    if top_n is not None:
+        return top_n
+    raw = (os.getenv("INGEST_TOP_N") or "").strip()
+    if not raw:
+        return DEFAULT_TOP_N
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise IngestionError(f"INGEST_TOP_N must be an integer; got {raw!r}") from exc
+
+
 def _to_dataframe(
     records: list[dict], quote_currency: str, captured_at: datetime | None = None
 ) -> pd.DataFrame:
@@ -177,7 +200,7 @@ def run_ingestion(
     if coins:
         records = client.fetch_markets(coins, vs_currency=quote_currency)
     else:
-        count = top_n or int(os.getenv("INGEST_TOP_N") or DEFAULT_TOP_N)
+        count = _resolve_top_n(top_n)
         records = client.fetch_top_markets(count, vs_currency=quote_currency)
     frame = _to_dataframe(records, quote_currency, captured_at)
 

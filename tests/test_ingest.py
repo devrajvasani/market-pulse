@@ -132,6 +132,48 @@ def test_fetch_markets_fails_fast_on_4xx(monkeypatch):
     assert calls["n"] == 1  # client error -> no retry
 
 
+def test_get_retries_transient_then_succeeds(monkeypatch):
+    # a transient network error must be retried (with one backoff), then succeed
+    import urllib.error
+
+    calls = {"n": 0}
+    sleeps: list = []
+
+    def _flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise urllib.error.URLError("temporary network blip")
+        return _FakeUrlopen(_SAMPLE)
+
+    monkeypatch.setattr("src.ingestion.batch.coingecko.urllib.request.urlopen", _flaky)
+    monkeypatch.setattr("src.ingestion.batch.coingecko.time.sleep", lambda s: sleeps.append(s))
+    data = CoinGeckoClient("CG-test").fetch_markets(["bitcoin"])
+    assert [r["symbol"] for r in data] == ["btc", "eth"]
+    assert calls["n"] == 2  # failed once, retried, succeeded
+    assert len(sleeps) == 1  # backed off exactly once before the retry
+
+
+def test_get_retries_exhausted_raises_after_max_attempts(monkeypatch):
+    # 5xx is retryable; after _MAX_ATTEMPTS it raises, and never sleeps after the final try
+    import urllib.error
+
+    from src.ingestion.batch import coingecko
+
+    calls = {"n": 0}
+    sleeps: list = []
+
+    def _always_503(*a, **k):
+        calls["n"] += 1
+        raise urllib.error.HTTPError("http://x", 503, "Service Unavailable", {}, None)
+
+    monkeypatch.setattr("src.ingestion.batch.coingecko.urllib.request.urlopen", _always_503)
+    monkeypatch.setattr("src.ingestion.batch.coingecko.time.sleep", lambda s: sleeps.append(s))
+    with pytest.raises(IngestionError, match=r"after \d+ attempts"):
+        CoinGeckoClient("CG-test").fetch_markets(["bitcoin"])
+    assert calls["n"] == coingecko._MAX_ATTEMPTS  # tried the max number of times
+    assert len(sleeps) == coingecko._MAX_ATTEMPTS - 1  # slept between attempts, not after the last
+
+
 def test_fetch_top_markets_requests_top_n(monkeypatch):
     seen: dict = {}
 
@@ -153,6 +195,17 @@ def test_fetch_top_markets_validates_count():
     for bad in (0, 251, -5):  # outside CoinGecko's 1..250 per-page bound
         with pytest.raises(IngestionError):
             client.fetch_top_markets(bad)
+
+
+def test_fetch_top_markets_accepts_boundary_counts(monkeypatch):
+    # the accepted edges of the 1..250 guard must NOT raise (guards against an off-by-one)
+    monkeypatch.setattr(
+        "src.ingestion.batch.coingecko.urllib.request.urlopen",
+        lambda *a, **k: _FakeUrlopen(_SAMPLE),
+    )
+    client = CoinGeckoClient("CG-test")
+    for ok in (1, 250):
+        assert client.fetch_top_markets(ok)
 
 
 # ── Transform ─────────────────────────────────────────────────────────────────
@@ -242,6 +295,36 @@ def test_run_ingestion_explicit_coins_uses_fetch_markets(monkeypatch):
 
     ingest.run_ingestion(coins=["bitcoin", "ethereum"], captured_at=_CAPTURED_AT)
     assert used["ids"] == ["bitcoin", "ethereum"]  # an explicit list bypasses top-N
+
+
+def test_resolve_top_n_precedence(monkeypatch):
+    monkeypatch.delenv("INGEST_TOP_N", raising=False)
+    assert ingest._resolve_top_n(25) == 25  # explicit arg wins over env/default
+    assert ingest._resolve_top_n(None) == ingest.DEFAULT_TOP_N  # no env -> default
+    monkeypatch.setenv("INGEST_TOP_N", "7")
+    assert ingest._resolve_top_n(None) == 7  # env override applies
+    monkeypatch.setenv("INGEST_TOP_N", "   ")
+    assert ingest._resolve_top_n(None) == ingest.DEFAULT_TOP_N  # blank env -> default
+    monkeypatch.setenv("INGEST_TOP_N", "nope")
+    with pytest.raises(IngestionError, match="INGEST_TOP_N"):
+        ingest._resolve_top_n(None)  # malformed -> clear IngestionError, not a bare ValueError
+
+
+def test_run_ingestion_honors_ingest_top_n_env(monkeypatch):
+    monkeypatch.setenv("MARKETDATA_API_KEY", "CG-test")
+    monkeypatch.setenv("BRONZE_BUCKET", "marketpulse-dev-bucket-bronze-test")
+    monkeypatch.setenv("INGEST_TOP_N", "10")
+    seen: dict = {}
+
+    def _fake_top(self, count, vs_currency="usd"):
+        seen["count"] = count
+        return _SAMPLE
+
+    monkeypatch.setattr(CoinGeckoClient, "fetch_top_markets", _fake_top)
+    monkeypatch.setattr("src.ingestion.batch.ingest.wr.s3.to_parquet", lambda **kw: None)
+
+    ingest.run_ingestion(captured_at=_CAPTURED_AT)
+    assert seen["count"] == 10  # INGEST_TOP_N flows through to fetch_top_markets
 
 
 # ── CLI entry ─────────────────────────────────────────────────────────────────
