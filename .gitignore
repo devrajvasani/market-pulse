@@ -249,5 +249,14 @@ infrastructure/localstack/volume/
 # Terraform Lambda build artifacts (staged package + zip)
 infra/build/
 
+# dbt — installed packages, run logs, machine-local user id, and the local DuckDB
+# twin's database files (the `target/` build dir is already ignored above).
+# State/artefacts, never source. (packages.yml + package-lock.yml ARE committed.)
+src/transform/dbt/dbt_packages/
+src/transform/dbt/logs/
+src/transform/dbt/.user.yml
+*.duckdb
+*.duckdb.wal
+
 # detect-secrets audit log (the .secrets.baseline file itself IS committed)
 .secrets.baseline.tmp

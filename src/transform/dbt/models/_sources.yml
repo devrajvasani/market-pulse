@@ -1,0 +1,21 @@
+version: 2
+
+# Bronze is the raw layer landed by Stage 1 batch ingestion. dbt reads it two ways
+# by adapter, with NO change to the model SQL:
+#   - Athena : the existing Glue table  marketpulse_dev.bronze_prices  (Stage 2).
+#   - DuckDB : read_parquet over the same Parquet, via the external_location below.
+# The DuckDB glob comes from DBT_BRONZE_GLOB (built from BRONZE_BUCKET) so the path
+# is never hardcoded and works against LocalStack or real S3 by config. dbt-athena
+# ignores external_location and uses schema.identifier instead.
+sources:
+  - name: bronze
+    description: "Raw hourly price snapshots (one row per coin per snapshot hour), as ingested."
+    schema: "{{ env_var('GLUE_DATABASE', 'marketpulse_dev') }}"
+    tables:
+      - name: prices
+        identifier: bronze_prices
+        description: "Bronze prices: raw values + ISO-string timestamps, partitioned by date/hour."
+        meta:
+          external_location: >-
+            read_parquet('{{ env_var('DBT_BRONZE_GLOB', '') }}',
+              hive_partitioning = true, hive_types_autocast = 0)

@@ -1,0 +1,59 @@
+# MarketPulse dbt project — SQL ELT for Bronze -> Silver -> Gold (Stage 3).
+# Same models run on two adapters by target: `duckdb` (local twin, free) and
+# `athena` (AWS, writes Iceberg — added in sub-stage 3c). Engine differences are
+# isolated in adapter.dispatch macros (see macros/), never inline per-target ifs.
+name: "marketpulse"
+version: "1.0.0"
+config-version: 2
+
+profile: "marketpulse"
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+analysis-paths: ["analyses"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Pre-flight guard: on the athena target, abort early if the Iceberg S3 locations are
+# unset (so data can never land in the wrong bucket). No-op on duckdb. See the macro.
+on-run-start:
+  - "{{ assert_athena_locations() }}"
+
+models:
+  marketpulse:
+    # Default to views (cheap); the curated layers materialise as tables.
+    +materialized: view
+    # `+table_type` / `+s3_data_dir` are dbt-athena configs: on the athena target the
+    # curated tables are written as Iceberg into the durable silver/gold buckets. On the
+    # duckdb target these keys are simply ignored (it builds a local DuckDB table) — so
+    # the SAME project serves both engines. s3_data_dir env vars default to '' locally.
+    # `+partitioned_by` is a dbt-athena (Iceberg) config — it partitions each table by
+    # date so Athena prunes to only the days a query needs (the cost lever). DuckDB
+    # ignores it. market_movers is a tiny point-in-time table (one row per coin), so it
+    # stays unpartitioned to avoid many micro-partitions.
+    silver:
+      # Incremental Iceberg MERGE: re-runs upsert new/changed rows on the natural key
+      # instead of rebuilding the whole table (production idempotency). First run (no
+      # table yet) builds in full; later runs process only recent dates (see the
+      # is_incremental() filter in silver_prices.sql) and MERGE them in.
+      +materialized: incremental
+      +incremental_strategy: merge
+      +unique_key: ["coin_id", "snapshot_date", "snapshot_hour"]
+      +table_type: iceberg
+      +s3_data_dir: "{{ env_var('DBT_SILVER_DATA', '') }}"
+      +partitioned_by: ["snapshot_date"]
+    gold:
+      +materialized: table
+      +table_type: iceberg
+      +s3_data_dir: "{{ env_var('DBT_GOLD_DATA', '') }}"
+      gold_daily_ohlc:
+        +partitioned_by: ["snapshot_date"]
+      gold_price_moving_avg:
+        +partitioned_by: ["snapshot_date"]
+      gold_volatility:
+        +partitioned_by: ["snapshot_date"]

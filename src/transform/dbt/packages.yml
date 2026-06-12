@@ -1,0 +1,7 @@
+# Third-party dbt packages. dbt_utils gives us the standard cross-adapter data
+# tests (multi-column uniqueness, accepted_range) used on Silver/Gold — its
+# macros are adapter-dispatched, so they work on both DuckDB and Athena.
+# Install with `dbt deps` (run automatically by `make transform-local`).
+packages:
+  - package: dbt-labs/dbt_utils
+    version: [">=1.1.0", "<2.0.0"]

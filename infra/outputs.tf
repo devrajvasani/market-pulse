@@ -54,3 +54,9 @@ output "athena_results_bucket" {
   description = "Bucket holding Athena query results; null on LocalStack."
   value       = one(module.athena_results[*].bucket_id)
 }
+
+# ── Stage 3d: Glue PySpark learning job (null unless enable_glue_spark=true) ──
+output "glue_bronze_to_silver_job" {
+  description = "Name of the Stage 3d Glue PySpark job; start it with `aws glue start-job-run --job-name <name>`."
+  value       = one(aws_glue_job.bronze_to_silver[*].name)
+}

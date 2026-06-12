@@ -6,6 +6,10 @@
       "Bash(git push:*)",
       "Bash(terraform apply:*)",
       "Bash(terraform destroy:*)"
+    ],
+    "allow": [
+      "Bash(mkdir -p \"/c/Users/pci184/AppData/Local/Temp/hive_test/snapshot_date=2026-06-10/snapshot_hour=12\")",
+      "Bash(duckdb -c ' *)"
     ]
   }
 }

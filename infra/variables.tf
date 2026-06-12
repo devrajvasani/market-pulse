@@ -32,3 +32,9 @@ variable "enable_catalog" {
   type        = bool
   default     = true
 }
+
+variable "enable_glue_spark" {
+  description = "Build the Stage 3d Glue PySpark learning job + its least-privilege role (AWS-only; requires enable_catalog=true). Opt-in: set true to deploy + run once or twice, then false + apply to remove. An idle Glue job costs $0; a run is a few cents."
+  type        = bool
+  default     = false
+}
