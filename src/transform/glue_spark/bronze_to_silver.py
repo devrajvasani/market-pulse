@@ -128,16 +128,17 @@ def main() -> None:
     job = Job(glue)
     job.init(args["JOB_NAME"], args)
 
-    bronze = spark.read.parquet(args["bronze_path"])
-    logger.info("Read %d Bronze rows from %s", bronze.count(), args["bronze_path"])
-
-    silver = transform(bronze)
+    bronze = spark.read.parquet(args["bronze_path"]).cache()
+    silver = transform(bronze).cache()
+    # Materialise into cache once so the row counts (logged below) don't trigger extra
+    # full scans and the write reuses the cached frame rather than recomputing it.
+    rows_in, rows_out = bronze.count(), silver.count()
 
     target = f"glue_catalog.{args['silver_database']}.{args['silver_table']}"
     # createOrReplace = full idempotent rebuild (the learning job's equivalent of the
     # dbt `table` materialization); partitioned by date like the SQL Iceberg tables.
     silver.writeTo(target).using("iceberg").partitionedBy("snapshot_date").createOrReplace()
-    logger.info("Wrote %d Silver rows to %s", silver.count(), target)
+    logger.info("Bronze rows in: %d, Silver rows out: %d -> %s", rows_in, rows_out, target)
 
     job.commit()
 

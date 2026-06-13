@@ -17,7 +17,16 @@ resource "aws_s3_object" "glue_bronze_to_silver_script" {
   bucket      = module.athena_results[0].bucket_id
   key         = "glue/scripts/bronze_to_silver.py"
   source      = "${path.root}/../src/transform/glue_spark/bronze_to_silver.py"
-  source_hash = filemd5("${path.root}/../src/transform/glue_spark/bronze_to_silver.py")
+  source_hash = filesha256("${path.root}/../src/transform/glue_spark/bronze_to_silver.py")
+
+  # Fail fast with a clear message if enabled without enable_catalog — the Glue DB and
+  # athena-results bucket this job depends on only exist when enable_catalog = true.
+  lifecycle {
+    precondition {
+      condition     = !var.enable_glue_spark || var.enable_catalog
+      error_message = "enable_glue_spark requires enable_catalog = true."
+    }
+  }
 }
 
 # Trust policy: ONLY the Glue service may assume this role.
@@ -31,6 +40,10 @@ resource "aws_iam_role" "glue_bronze_to_silver" {
       Effect    = "Allow"
       Principal = { Service = "glue.amazonaws.com" }
       Action    = "sts:AssumeRole"
+      # Confused-deputy guard: only Glue acting for THIS account may assume the role.
+      Condition = {
+        StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
+      }
     }]
   })
 }
@@ -77,7 +90,9 @@ resource "aws_iam_role_policy" "glue_bronze_to_silver" {
         ]
       },
       {
-        # Register/update the Iceberg table in the one Glue database (table + DB + catalog ARNs).
+        # Register/update the Iceberg table in the one Glue database (table + DB + catalog
+        # ARNs). No DeleteTable: createOrReplace only needs Create/Update, and omitting it
+        # means this job can never drop the sibling dbt-managed tables in the same database.
         Sid    = "GlueCatalogTableOps"
         Effect = "Allow"
         Action = [
@@ -86,7 +101,6 @@ resource "aws_iam_role_policy" "glue_bronze_to_silver" {
           "glue:GetTables",
           "glue:CreateTable",
           "glue:UpdateTable",
-          "glue:DeleteTable",
         ]
         Resource = [
           "arn:aws:glue:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:catalog",
@@ -102,10 +116,16 @@ resource "aws_iam_role_policy" "glue_bronze_to_silver" {
         Resource = module.kms.key_arn
       },
       {
-        Sid      = "WriteGlueLogs"
-        Effect   = "Allow"
-        Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
-        Resource = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws-glue/*"
+        # Scoped to the Glue JOB log groups only (not all of /aws-glue/, which would also
+        # cover crawlers/sessions). Covers default output/error + continuous logs-v2.
+        Sid    = "WriteGlueJobLogs"
+        Effect = "Allow"
+        Action = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = [
+          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws-glue/jobs/output:*",
+          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws-glue/jobs/error:*",
+          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws-glue/jobs/logs-v2:*",
+        ]
       },
     ]
   })

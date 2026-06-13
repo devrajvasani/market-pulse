@@ -7,7 +7,7 @@
 > |                          |                                                                                                                                                                                                                      |
 > | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 > | **Scope**          | Everything under[`infra/`](../infra/) — the root config and the reusable modules.                                                                                                                                    |
-> | **Current state**  | **Stage 2 — deployed to AWS** — storage + batch-ingest + Glue catalog & Athena (catalog + first SQL); catalog gated off for LocalStack (DuckDB twin).                                                                                                                                                    |
+> | **Current state**  | **Stage 3 — deployed to AWS** — storage + batch-ingest + Glue catalog & Athena + **Silver/Gold Iceberg transforms** (built by **dbt** at runtime, *not* Terraform). Terraform adds only an optional **Glue Spark** learning job (gated off; account-blocked on this Free Plan). Catalog gated off for LocalStack (DuckDB twin).                                                                                                                                                    |
 > | **Companion docs** | System/data overview:[architecture.md](architecture.md) · IaC conventions: [`.claude/skills/iac-terraform`](../.claude/skills/iac-terraform/) · Setup: [plan/04_INFRASTRUCTURE_SETUP.md](plan/04_INFRASTRUCTURE_SETUP.md) |
 
 ## Contents
@@ -121,10 +121,12 @@ that infrastructure (data in and out) is done by the running application, **neve
 | File                               | Role                                                                                                                                                                                                                                                   |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [main.tf](../infra/main.tf)           | **Providers + global tags.** Declares `aws`/`random`/`archive`, pins versions, sets `default_tags`. **No resources.**                                                                                                              |
-| [variables.tf](../infra/variables.tf) | **The knobs:** `region` (`us-east-1`), `environment` (`dev`), `owner` (required), `awswrangler_layer_arn` (`""`), `ingest_schedule` (`rate(1 hour)`), `enable_catalog` (`true`; `false` skips Glue/Athena for LocalStack). Real values come from `terraform.tfvars` (gitignored) or `TF_VAR_*`. |
+| [variables.tf](../infra/variables.tf) | **The knobs:** `region` (`us-east-1`), `environment` (`dev`), `owner` (required), `awswrangler_layer_arn` (`""`), `ingest_schedule` (`rate(1 hour)`), `enable_catalog` (`true`; `false` skips Glue/Athena for LocalStack), `enable_glue_spark` (`false`; opt-in Stage-3d Glue Spark job). Real values come from `terraform.tfvars` (gitignored) or `TF_VAR_*`. |
 | [storage.tf](../infra/storage.tf)     | **Storage foundation:** `random_id` suffix → `module.kms` → `module.s3` (×3 via `for_each`).                                                                                                                                          |
 | [ingest.tf](../infra/ingest.tf)       | **Batch-ingest component:** `module.secret` → `module.iam_ingest` → `archive_file` → `module.lambda_ingest` → `module.eventbridge_ingest`.                                                                                         |
-| [outputs.tf](../infra/outputs.tf)     | **Post-apply readout:** `bucket_names`, `kms_key_arn`, `secret_arn`, `ingest_role_arn`, `ingest_function_name`, `ingest_schedule_rule`; **+ Stage 2:** `glue_database`, `athena_workgroup`, `athena_results_bucket` (null when catalog off).                                                                                              |
+| [catalog.tf](../infra/catalog.tf)     | **(Stage 2) Catalog + query:** `module.athena_results` + `module.glue_catalog` + `module.athena` — all gated by `enable_catalog`.                                                                                       |
+| [transform.tf](../infra/transform.tf) | **(Stage 3d) Glue Spark learning job:** inline `aws_iam_role` + `aws_iam_role_policy` + `aws_s3_object` (script) + `aws_glue_job` — gated by `enable_glue_spark` (default `false`). *Not* a module (one-off learning resource). Account-blocked on this Free Plan. |
+| [outputs.tf](../infra/outputs.tf)     | **Post-apply readout:** `bucket_names`, `kms_key_arn`, `secret_arn`, `ingest_role_arn`, `ingest_function_name`, `ingest_schedule_rule`; **+ Stage 2:** `glue_database`, `athena_workgroup`, `athena_results_bucket` (null when catalog off); **+ Stage 3:** `glue_bronze_to_silver_job` (null unless `enable_glue_spark`).                                                                                              |
 
 ---
 
@@ -364,7 +366,8 @@ What each stage adds to `infra/`. Append a row when a stage lands; keep §4–§
 | **0**  | Foundation                                               | `main.tf`, `variables.tf`, `outputs.tf` | Provider +`default_tags` skeleton — **no resources**                                           | ✅ done                                            |
 | **1**  | Storage + batch ingest (Bronze)                          | `storage.tf`, `ingest.tf`                 | `kms`, `s3` (×3: bronze/silver/gold), `secret`, `iam_lambda`, `lambda`, `eventbridge`      | ✅ DEPLOYED to AWS (acct 724166961779); LocalStack create/update/destroy demoed |
 | **2**  | Catalog + first SQL                                      | `catalog.tf`                              | `glue_catalog` (DB + `bronze_prices` table, partition projection), `athena` (workgroup, 100 MB cap), `athena_results` bucket — all gated by `enable_catalog` | ✅ DEPLOYED to AWS; LocalStack via the DuckDB twin (catalog gated off) |
-| **3+** | Transforms · streaming · RAG · orchestration · CI/CD | _tbd_                                       | _Not yet built (e.g. Iceberg Silver/Gold, dbt, Kinesis, Step Functions)._ | ⏳ planned                                         |
+| **3**  | Transform to Silver + Gold | `transform.tf` | (3d) inline Glue Spark job + IAM, gated `enable_glue_spark` (default off). **Silver/Gold Iceberg tables are built by dbt at runtime — not Terraform.** | ✅ SQL/Iceberg path DEPLOYED (Athena); Glue job account-blocked → gated off |
+| **4+** | Streaming · RAG · orchestration · CI/CD | _tbd_                                       | _Not yet built (e.g. Kinesis, Step Functions, FAISS)._ | ⏳ planned                                         |
 
 ### Resource names created in Stage 1 (`environment = dev`)
 
@@ -382,6 +385,17 @@ What each stage adds to `infra/`. Append a row when a stage lands; keep §4–§
 - `marketpulse-dev-bucket-athena-results-<hex>` (dedicated, encrypted results bucket)
 
 The Stage-2 catalog is gated by **`enable_catalog`** (default `true` for AWS; pass `-var="enable_catalog=false"` for LocalStack, where Glue/Athena are Pro — the local query twin is **DuckDB**). `moved` blocks migrate the count-gate state with no recreate. For local runs, force a local state file via a gitignored `infra/localstack_backend_override.tf` (`backend "local" {}`) — `tflocal` otherwise reads the real AWS state (see [stage-2 doc](stages/stage-2-catalog-first-sql.md)).
+
+### Resource names created in Stage 3 (`environment = dev`)
+
+Only the optional **Glue Spark learning job** is Terraform-managed (gated by `enable_glue_spark`, default **off**):
+
+- `marketpulse-dev-role-glue-bronze-to-silver` (+ inline `…-policy`)
+- `marketpulse-dev-glue-bronze-to-silver` (Glue 4.0, 2× G.1X) + script object `glue/scripts/bronze_to_silver.py` in the athena-results bucket
+
+The **Silver/Gold Iceberg tables** (`silver_prices`, `gold_daily_ohlc`, `gold_price_moving_avg`, `gold_volatility`, `gold_market_movers`) are **not** Terraform — **dbt** (`src/transform/dbt/`) creates them at runtime in the `marketpulse_dev` Glue DB, a data-plane operation like the Lambda writing Bronze (see [§2](#2-scope--what-terraform-does-and-does-not-do)). The local twin is **DuckDB**; see the [stage-3 doc](stages/stage-3-transform-silver-gold.md).
+
+**Glue job account-blocked:** `Glue: CreateJob` returns `AccessDeniedException: Account … is denied access` (account-level Glue-ETL restriction on the new AWS Free Plan — the catalog still works, only ETL jobs are blocked). The live run is deferred to an unrestricted account; the reviewed IaC stays gated off.
 
 ### Remote state backend (Stage 1)
 
@@ -402,7 +416,8 @@ infra/
 ├── storage.tf               random_id + module.kms + module.s3 (×3)
 ├── ingest.tf                module.secret + iam_ingest + archive_file + lambda_ingest + eventbridge_ingest
 ├── catalog.tf               (Stage 2) athena_results bucket + glue_catalog + athena — gated by enable_catalog
-├── outputs.tf               bucket_names · kms/secret/role/function/rule · glue_database · athena_workgroup · athena_results_bucket
+├── transform.tf             (Stage 3d) Glue Spark job + IAM (inline) — gated by enable_glue_spark (default off)
+├── outputs.tf               bucket_names · kms/secret/role/function/rule · glue_database · athena_workgroup · athena_results_bucket · glue_bronze_to_silver_job
 ├── .terraform.lock.hcl      provider version locks (committed)
 └── modules/
     ├── kms/                 CMK + alias
