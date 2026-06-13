@@ -1,0 +1,61 @@
+# dbt connection profiles for MarketPulse. No secrets live here: the DuckDB S3
+# secret uses the standard AWS credential chain (env / profile), mirroring
+# src/backends/duckdb_backend.py. Bucket name + endpoint come from env vars so
+# the same profile points at LocalStack or real AWS by config (Section B).
+#
+# Targets (DuckDB engine is identical across the two; only S3 wiring differs):
+#   duckdb     (default) — free local twin reading Bronze from *LocalStack* S3
+#                          (path-style, no TLS). Needs Docker/LocalStack running.
+#   duckdb_s3            — same DuckDB engine, reading *real* AWS S3 Bronze via the
+#                          standard credential chain (no LocalStack/Docker). Handy
+#                          to see Silver on real data fast; tiny S3 GET cost (~$0).
+#   athena              — AWS path that WRITES Iceberg tables via Athena (Trino),
+#                          registered in the existing Glue DB. Data lands in the
+#                          durable silver/gold buckets (s3_data_dir, set per layer
+#                          in dbt_project.yml); query results go to the athena-results
+#                          bucket (s3_staging_dir). Run with: dbt build --target athena.
+marketpulse:
+  target: "{{ env_var('DBT_TARGET', 'duckdb') }}"
+  outputs:
+    duckdb:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', 'target/marketpulse.duckdb') }}"
+      threads: 4
+      extensions:
+        - httpfs
+      # Maps to DuckDB CREATE SECRET. credential_chain pulls creds from the env
+      # (test/test for LocalStack), so nothing secret is written into SQL/config.
+      # ENDPOINT + path-style + USE_SSL false target LocalStack.
+      secrets:
+        - type: s3
+          provider: credential_chain
+          region: "{{ env_var('AWS_DEFAULT_REGION', 'us-east-1') }}"
+          endpoint: "{{ env_var('DBT_S3_ENDPOINT', 'localhost:4566') }}"
+          url_style: "path"
+          use_ssl: false
+    duckdb_s3:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', 'target/marketpulse.duckdb') }}"
+      threads: 4
+      extensions:
+        - httpfs
+      # Real AWS S3: no endpoint/path-style overrides. credential_chain resolves
+      # your real AWS creds (env / ~/.aws profile) — mirrors duckdb_backend.py's
+      # real-AWS branch. Make sure the LocalStack test/test creds are NOT set.
+      secrets:
+        - type: s3
+          provider: credential_chain
+          region: "{{ env_var('AWS_DEFAULT_REGION', 'us-east-1') }}"
+    athena:
+      type: athena
+      # Catalog = Glue. schema = the existing marketpulse_dev Glue database (Stage 2).
+      database: "{{ env_var('DBT_ATHENA_CATALOG', 'awsdatacatalog') }}"
+      schema: "{{ env_var('GLUE_DATABASE', 'marketpulse_dev') }}"
+      region_name: "{{ env_var('AWS_DEFAULT_REGION', 'us-east-1') }}"
+      # Query RESULTS (transient) -> the athena-results bucket. Iceberg table DATA is
+      # set per layer via s3_data_dir in dbt_project.yml (durable silver/gold buckets).
+      s3_staging_dir: "{{ env_var('DBT_ATHENA_STAGING', '') }}"
+      # The Stage-2 workgroup enforces the 100 MB scan cap + KMS-encrypted results.
+      work_group: "{{ env_var('ATHENA_WORKGROUP', 'marketpulse-dev-athena-analytics') }}"
+      threads: 4
+      # Credentials resolve from the standard AWS chain (env / ~/.aws) — never in this file.

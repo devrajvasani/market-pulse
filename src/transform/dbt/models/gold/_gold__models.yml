@@ -1,0 +1,146 @@
+version: 2
+
+models:
+  - name: gold_daily_ohlc
+    description: >
+      Daily OHLC per coin, derived from hourly Silver snapshots. Volume is the day's
+      closing 24h figure (not a sum). The data-quality gate for the OHLC mart.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - coin_id
+              - snapshot_date
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "high_price >= low_price"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "high_price >= open_price and high_price >= close_price"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "low_price <= open_price and low_price <= close_price"
+    columns:
+      - name: coin_id
+        data_tests:
+          - not_null
+      - name: snapshot_date
+        data_tests:
+          - not_null
+      - name: open_price
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: high_price
+        # Tested explicitly: the OHLC-ordering expression_is_true tests pass-through
+        # nulls (a null makes the predicate null, not false), so H/L need their own guards.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: low_price
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: close_price
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: close_total_volume_24h
+        description: "Closing 24h volume; non-negative (zero is legitimate)."
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: true
+      - name: snapshots_in_day
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                inclusive: true
+
+  - name: gold_price_moving_avg
+    description: "7-day simple moving average of the daily close, per coin."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - coin_id
+              - snapshot_date
+    columns:
+      - name: coin_id
+        data_tests:
+          - not_null
+      - name: snapshot_date
+        data_tests:
+          - not_null
+      - name: close_sma_7d
+        description: "Average of the last <=7 daily closes; always positive."
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+
+  - name: gold_volatility
+    description: "Rolling 7-day sample stddev of daily returns, per coin."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - coin_id
+              - snapshot_date
+    columns:
+      - name: coin_id
+        data_tests:
+          - not_null
+      - name: snapshot_date
+        data_tests:
+          - not_null
+      - name: volatility_7d
+        description: "Non-negative when present; null until >=2 returns exist in the window."
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: true
+
+  - name: gold_market_movers
+    description: "Latest snapshot per coin with short-horizon moves, ranked by 24h change."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - coin_id
+    columns:
+      - name: coin_id
+        data_tests:
+          - not_null
+      - name: current_price
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: change_rank_24h
+        description: "Dense 24h-change rank; 1 = biggest gainer. Always a positive integer."
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                inclusive: true

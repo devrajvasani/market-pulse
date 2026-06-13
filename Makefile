@@ -2,7 +2,7 @@
 # Windows: run via Git Bash / WSL, or install `make` (e.g. choco install make).
 .PHONY: help install lint format test precommit \
         localstack-up localstack-down wait-localstack deploy-local run-local \
-        tf-fmt tf-validate tf-plan deploy stream destroy query
+        tf-fmt tf-validate tf-plan deploy stream destroy query transform-local transform-aws
 
 help:  ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -41,6 +41,23 @@ run-local:  ## Run the batch ingestion locally (needs APP_ENV=local + BRONZE_BUC
 
 query:  ## Run SELECT count(*) FROM bronze_prices via the active QueryEngine (ENGINE=duckdb|athena forces)
 	uv run python -m src.query.run $(if $(ENGINE),--engine $(ENGINE))
+
+transform-local:  ## Build + test Silver on local DuckDB over LocalStack Bronze (needs LocalStack up + BRONZE_BUCKET)
+	@test -n "$(BRONZE_BUCKET)" || { echo "Set BRONZE_BUCKET first (your tflocal bronze bucket)"; exit 1; }
+	cd src/transform/dbt && \
+	  export DBT_BRONZE_GLOB="s3://$(BRONZE_BUCKET)/prices/**/*.parquet" && \
+	  export AWS_ACCESS_KEY_ID="$${AWS_ACCESS_KEY_ID:-test}" && \
+	  export AWS_SECRET_ACCESS_KEY="$${AWS_SECRET_ACCESS_KEY:-test}" && \
+	  export AWS_DEFAULT_REGION="$${AWS_DEFAULT_REGION:-us-east-1}" && \
+	  export DBT_S3_ENDPOINT="$${DBT_S3_ENDPOINT:-localhost:4566}" && \
+	  uv run dbt deps && \
+	  uv run dbt build --profiles-dir . --project-dir .
+
+transform-aws:  ## Build Silver/Gold as Iceberg on AWS Athena (needs real AWS creds + DBT_*_DATA/STAGING from terraform output)
+	@test -n "$(DBT_ATHENA_STAGING)" || { echo "Set DBT_ATHENA_STAGING + DBT_SILVER_DATA + DBT_GOLD_DATA from 'terraform -chdir=infra output' first"; exit 1; }
+	cd src/transform/dbt && \
+	  uv run dbt deps && \
+	  uv run dbt build --target athena --profiles-dir . --project-dir .
 
 tf-fmt:  ## Check Terraform formatting
 	terraform -chdir=infra fmt -check -recursive
