@@ -79,8 +79,11 @@ def transform(bronze: DataFrame) -> DataFrame:
         F.to_date(F.col("snapshot_date")).alias("snapshot_date"),
         F.col("snapshot_hour").cast("int").alias("snapshot_hour"),
     )
-    # Latest capture per natural key (row_number == 1) -- the same rule as the SQL dedup.
-    latest = Window.partitionBy(*_NATURAL_KEY).orderBy(F.col("ingested_at").desc())
+    # Latest capture per natural key (row_number == 1) -- the same rule as the SQL dedup,
+    # incl. the source_updated_at tiebreaker for equal ingested_at (kept in lockstep).
+    latest = Window.partitionBy(*_NATURAL_KEY).orderBy(
+        F.col("ingested_at").desc(), F.col("source_updated_at").desc()
+    )
     return (
         typed.withColumn("_row_num", F.row_number().over(latest))
         .where(F.col("_row_num") == 1)

@@ -145,6 +145,8 @@ builds (resources), what it hands back (outputs).
 | [iam_lambda](../infra/modules/iam_lambda/main.tf)   | The ingest Lambda's least-privilege identity (trust + inline policy, no wildcards).        | `aws_iam_role` + `aws_iam_role_policy`                                                              |
 | [lambda](../infra/modules/lambda/main.tf)           | The function itself + its log group (pre-created so retention is finite).                  | `aws_lambda_function` + `aws_cloudwatch_log_group`                                                  |
 | [eventbridge](../infra/modules/eventbridge/main.tf) | The schedule + permission for EventBridge to invoke the Lambda.                            | `aws_cloudwatch_event_rule` + `aws_cloudwatch_event_target` + `aws_lambda_permission`             |
+| [glue_catalog](../infra/modules/glue_catalog/main.tf) *(Stage 2)* | Glue DB + the `bronze_prices` metadata table (partition projection, no crawler).        | `aws_glue_catalog_database` + `aws_glue_catalog_table`                                            |
+| [athena](../infra/modules/athena/main.tf) *(Stage 2)* | Athena workgroup with a 100 MB per-query scan cap + SSE-KMS results.                     | `aws_athena_workgroup`                                                                              |
 
 ### 5.2 `kms`
 

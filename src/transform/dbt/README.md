@@ -6,7 +6,8 @@ bad data. The *same* models run on two engines, selected by dbt **target**:
 
 | Target               | Engine              | Reads Bronze from                       | Writes                   | Cost     |
 | -------------------- | ------------------- | --------------------------------------- | ------------------------ | -------- |
-| `duckdb` (default) | DuckDB (local twin) | LocalStack/real S3 via `read_parquet` | local DuckDB tables      | $0       |
+| `duckdb` (default) | DuckDB (local twin) | **LocalStack** S3 via `read_parquet` (endpoint forced) | local DuckDB tables      | $0       |
+| `duckdb_s3`        | DuckDB (local twin) | **real** AWS S3 via `read_parquet` (credential chain, no LocalStack) | local DuckDB tables      | ~$0      |
 | `athena` (3c)      | Athena (Trino)      | Glue table `bronze_prices`            | **Iceberg** tables | ~pennies |
 
 Engine dialect differences are isolated in `macros/` via `adapter.dispatch`

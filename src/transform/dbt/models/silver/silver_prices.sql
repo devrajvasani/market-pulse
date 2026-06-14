@@ -15,6 +15,9 @@ with bronze as (
     -- Incremental: only reprocess snapshots from the latest date already in Silver
     -- onward; the MERGE on the natural key upserts them (no duplicates). Cast the raw
     -- string partition to date to compare against Silver's typed snapshot_date.
+    -- NOTE: moves FORWARD only. Backfilling a date OLDER than Silver's current max needs
+    -- `dbt build --full-refresh --select silver_prices` (a plain incremental run won't
+    -- re-read it, and the row-count test would then fail). See the stage-3 runbook.
     where cast(snapshot_date as date)
         >= (select coalesce(max(snapshot_date), date '1900-01-01') from {{ this }})
     {% endif %}
@@ -60,7 +63,9 @@ deduped as (
         typed.*,
         row_number() over (
             partition by coin_id, snapshot_date, snapshot_hour
-            order by ingested_at desc
+            -- source_updated_at is a deterministic tiebreaker if two rows ever share the
+            -- same ingested_at (prefer the fresher upstream value).
+            order by ingested_at desc, source_updated_at desc
         ) as _row_num
     from typed
 

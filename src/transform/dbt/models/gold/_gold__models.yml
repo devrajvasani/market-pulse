@@ -137,9 +137,10 @@ models:
                 min_value: 0
                 inclusive: false
       - name: change_rank_24h
-        description: "Dense 24h-change rank; 1 = biggest gainer. Always a positive integer."
+        description: "Sequential 24h-change rank (row_number, ties broken by coin_id); 1 = biggest gainer; always a positive integer, unique (no gaps/dupes)."
         data_tests:
           - not_null
+          - unique
           - dbt_utils.accepted_range:
               arguments:
                 min_value: 1

@@ -2,6 +2,10 @@
 -- DISTINCT Bronze natural key. Returns rows (-> test fails) if dedup dropped real
 -- data or the counts diverge for any reason. `||` string concat works on both
 -- DuckDB and Athena (Trino); keys are non-null (enforced by the not_null tests).
+-- INVARIANT this relies on: Bronze current data is permanent (the S3 lifecycle expires
+-- only NONcurrent versions) and Silver is upsert/append-only. If a Bronze data-expiry
+-- policy is ever added, or an older date is backfilled but not --full-refreshed into
+-- Silver, this equality breaks for a non-bug reason -- revisit the test window then.
 with bronze_keys as (
     select count(distinct coin_id || '|' || snapshot_date || '|' || snapshot_hour) as n
     from {{ source("bronze", "prices") }}

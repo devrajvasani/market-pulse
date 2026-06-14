@@ -93,6 +93,8 @@ cd ../../..
 ```
 Verify (Athena query editor, workgroup `marketpulse-dev-athena-analytics`): `SELECT count(*) FROM silver_prices;` — or `dbt show --select gold_market_movers --limit 10 --target athena --profiles-dir src/transform/dbt --project-dir src/transform/dbt`.
 
+> **Backfilling an older date:** the Silver incremental only moves **forward** (reprocesses `snapshot_date >=` Silver's current max). If you re-ingest or backfill a date **older** than that max, a plain incremental run won't pick it up (and `assert_silver_rowcount_matches_bronze` will then fail). Recover with a one-off **`dbt build --full-refresh --select silver_prices+`** (rebuilds Silver + its downstream Gold from all Bronze). Normal forward hourly ingestion never hits this.
+
 **The switch — what actually changes (same model SQL throughout):**
 
 | | local default | local real-S3 | AWS live |

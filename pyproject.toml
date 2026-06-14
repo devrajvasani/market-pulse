@@ -7,7 +7,8 @@ description = "Real-time market-intelligence lakehouse on AWS, runnable free loc
 requires-python = ">=3.11"
 dependencies = [
     "boto3>=1.34",        # AWS SDK — respects AWS_ENDPOINT_URL for LocalStack (Group A services)
-    "duckdb>=1.0",        # local query engine — the Athena adapter target (Section B)
+    "duckdb>=1.4",        # local query engine (Athena twin); >=1.4 = native MERGE INTO, which
+    #                       dbt-duckdb's `merge` incremental strategy needs for Silver (Section B)
     "python-dotenv>=1.0", # auto-load .env + config/environments/*.env (config/settings.py)
     "awswrangler>=3.9",   # partitioned Parquet -> S3 (idempotent overwrite_partitions); pandas+pyarrow
     #                       on Lambda this comes from the AWS SDK for pandas layer, not the zip
