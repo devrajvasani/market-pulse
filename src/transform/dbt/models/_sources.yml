@@ -19,3 +19,12 @@ sources:
           external_location: >-
             read_parquet('{{ env_var('DBT_BRONZE_GLOB', '') }}',
               hive_partitioning = true, hive_types_autocast = 0)
+      - name: trades
+        identifier: bronze_trades
+        description: "Bronze trades: raw streaming trade records as NDJSON, partitioned by date/hour (Stage 4)."
+        meta:
+          # Streaming Bronze is NDJSON (boto3 consumer, no Parquet libs). DuckDB reads it with
+          # read_json; Athena uses a JSON-SerDe Glue table `bronze_trades` (added in 4d).
+          external_location: >-
+            read_json_auto('{{ env_var('DBT_TRADES_GLOB', '') }}',
+              format = 'newline_delimited', hive_partitioning = true)

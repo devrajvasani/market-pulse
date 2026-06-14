@@ -73,8 +73,8 @@ tf-plan:  ## Show the Terraform plan (read-only preview for review)
 deploy:  ## (human) Print the apply command — review tf-plan first, then run it yourself
 	@echo "Review 'make tf-plan', then deploy yourself:  terraform -chdir=infra apply"
 
-stream:  ## Run the streaming producer for a window (Stage 4): make stream MINUTES=10
-	@echo "stream: implemented in Stage 4 (run-stream-window)."
+stream:  ## Run the streaming producer for a window (Stage 4): make stream MINUTES=10 [DRY_RUN=1]
+	MINUTES=$(or $(MINUTES),1) DRY_RUN=$(or $(DRY_RUN),0) ./scripts/run-stream-window.sh
 
 destroy:  ## (human) Print the teardown command — run it yourself before the credit expires
 	@echo "Tear down yourself (Section I/N):  terraform -chdir=infra destroy"

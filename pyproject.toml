@@ -15,6 +15,7 @@ dependencies = [
     "dbt-core>=1.10,<2",  # SQL ELT framework — Bronze->Silver->Gold models + data tests (Stage 3)
     "dbt-duckdb>=1.10,<2", # dbt adapter for the local DuckDB twin (free)
     "dbt-athena>=1.9,<2", # dbt adapter for the AWS path: writes Iceberg via Athena (Stage 3c)
+    "websocket-client>=1.7", # streaming producer: Coinbase trades WebSocket -> Kinesis (Stage 4)
 ]
 
 # Dev/test tooling. Installed via `uv sync` into the project venv; used by `make test` and CI.
