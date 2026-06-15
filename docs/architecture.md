@@ -37,6 +37,7 @@ _(Per-component specifics are filled in as each stage lands; full write-up in St
 ## Key decisions (log; appended each stage)
 - **$99 hard budget** → serverless-first; avoid MWAA/Redshift/MSK/OpenSearch/NAT.
 - **SQL ELT (Athena/dbt) is the primary transform path**; Glue PySpark is a parallel learning path.
+- **Streaming (Stage 4):** Kinesis (1-shard provisioned, gated off when idle) → consumer Lambda → **NDJSON** Bronze → dbt `silver_trades`/`gold_latest_price`, with an SQS DLQ. The consumer is **boto3-only (no Lambda layer)** so it runs unchanged on LocalStack and AWS. (Live Kinesis is account-blocked on the Free Plan → validated on LocalStack.)
 - **FAISS-in-S3** for vectors (not OpenSearch) — near-zero cost.
 - **AWS region:** `us-east-1` (widest Bedrock availability, lowest reference pricing, local parity).
 - **Secret scanner:** `detect-secrets` (Python-native, baseline-driven).
