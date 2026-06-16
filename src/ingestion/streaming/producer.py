@@ -2,12 +2,14 @@
 
 Connects to the public Coinbase Exchange WebSocket (no auth), subscribes to the
 ``matches`` channel for a set of products, normalises each trade, and writes batches
-to the Kinesis trades stream. Runs for a BOUNDED window (``STREAM_WINDOW_SECONDS``)
-then exits — so it's launched in short test windows and never left idle (cost).
+to the Kinesis trades stream. By default runs for a BOUNDED window
+(``STREAM_WINDOW_SECONDS``, default 60) then exits — short test windows, never left idle
+(cost). Set ``STREAM_WINDOW_SECONDS=0`` to stream CONTINUOUSLY until Ctrl+C (the local
+continuous-streaming demo).
 
-The same code targets LocalStack (``AWS_ENDPOINT_URL`` set) or real AWS by config.
-Set ``DRY_RUN=1`` to log normalised trades WITHOUT writing to Kinesis — useful to
-verify the live feed before the stream exists (Stage 4a).
+The same code targets LocalStack (``AWS_ENDPOINT_URL`` set) or real AWS by config — no
+emulator-specific branches. Set ``DRY_RUN=1`` to log normalised trades WITHOUT writing to
+Kinesis — useful to verify the live feed before the stream exists (Stage 4a).
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ _FLUSH_SECONDS = 2.0  # flush a partial batch at least this often (near-real-tim
 _RECV_TIMEOUT = 1.0  # ws recv timeout so the loop can check the deadline + flush
 _CONNECT_TIMEOUT = 15.0  # generous handshake timeout (the TLS+WS upgrade can take >1s)
 _RECONNECT_BACKOFF = 2.0
+_HEARTBEAT_SECONDS = 15.0  # in continuous mode, log cumulative progress at least this often
 
 
 def normalize_trade(message: dict) -> dict | None:
@@ -108,49 +111,78 @@ def run(
     region: str,
     dry_run: bool = False,
 ) -> int:
-    """Stream Coinbase trades into Kinesis for ``duration_seconds``, then stop.
+    """Stream Coinbase trades into Kinesis until the window ends — or forever.
 
-    Reconnects with a short backoff on connection drops. Returns the total number of
-    trades sent across the window.
+    ``duration_seconds <= 0`` runs **continuously** until interrupted (Ctrl+C) — for the
+    local continuous-streaming demo. A positive value runs one bounded window then stops
+    (the cost-safe default for AWS — never leave a real stream running idle). Reconnects
+    with a short backoff on connection drops. Returns the total number of trades sent.
+    This is config-driven only (no LocalStack/AWS-specific branches).
     """
     kinesis = (
         None if dry_run else boto3.client("kinesis", endpoint_url=endpoint_url, region_name=region)
     )
     subscribe = json.dumps({"type": "subscribe", "product_ids": products, "channels": ["matches"]})
-    deadline = time.monotonic() + duration_seconds
+    continuous = duration_seconds <= 0
+    deadline = float("inf") if continuous else time.monotonic() + duration_seconds
     sent_total = 0
-    while time.monotonic() < deadline:
-        try:
-            ws = websocket.create_connection(_COINBASE_WS_URL, timeout=_CONNECT_TIMEOUT)
-            ws.settimeout(_RECV_TIMEOUT)  # short recv timeout so the read loop polls the deadline
-            ws.send(subscribe)
-            logger.info("Subscribed to Coinbase matches for %s", products)
-            batch: list[dict] = []
-            last_flush = time.monotonic()
-            while time.monotonic() < deadline:
-                try:
-                    raw = ws.recv()
-                except websocket.WebSocketTimeoutException:
-                    raw = None
-                if raw:
-                    trade = normalize_trade(json.loads(raw))
-                    if trade:
-                        batch.append(trade)
-                now = time.monotonic()
-                if len(batch) >= _BATCH_SIZE or (batch and now - last_flush >= _FLUSH_SECONDS):
-                    sent_total += _flush(kinesis, stream_name, batch, dry_run)
-                    batch, last_flush = [], now
-            sent_total += _flush(kinesis, stream_name, batch, dry_run)  # final partial
-            ws.close()
-        except (websocket.WebSocketException, OSError) as exc:
-            logger.warning("WebSocket error (%s); reconnecting in %ss", exc, _RECONNECT_BACKOFF)
-            time.sleep(_RECONNECT_BACKOFF)
-    logger.info("Stream window complete: %d trades -> %s", sent_total, stream_name)
+    batch: list[dict] = []  # function-scoped so a Ctrl+C in continuous mode can flush it
+    last_heartbeat = time.monotonic()
+    try:
+        while time.monotonic() < deadline:
+            try:
+                ws = websocket.create_connection(_COINBASE_WS_URL, timeout=_CONNECT_TIMEOUT)
+                ws.settimeout(_RECV_TIMEOUT)  # short recv timeout so the loop polls the deadline
+                ws.send(subscribe)
+                logger.info(
+                    "Subscribed to Coinbase matches for %s (%s)",
+                    products,
+                    "continuous; Ctrl+C to stop" if continuous else f"{duration_seconds}s window",
+                )
+                last_flush = time.monotonic()
+                while time.monotonic() < deadline:
+                    try:
+                        raw = ws.recv()
+                    except websocket.WebSocketTimeoutException:
+                        raw = None
+                    if raw:
+                        trade = normalize_trade(json.loads(raw))
+                        if trade:
+                            batch.append(trade)
+                    now = time.monotonic()
+                    if len(batch) >= _BATCH_SIZE or (batch and now - last_flush >= _FLUSH_SECONDS):
+                        sent_total += _flush(kinesis, stream_name, batch, dry_run)
+                        batch, last_flush = [], now
+                    if now - last_heartbeat >= _HEARTBEAT_SECONDS:
+                        logger.info(
+                            "Streaming... %d trades sent so far -> %s", sent_total, stream_name
+                        )
+                        last_heartbeat = now
+                sent_total += _flush(kinesis, stream_name, batch, dry_run)  # final partial
+                batch = []
+                ws.close()
+            except (websocket.WebSocketException, OSError) as exc:
+                logger.warning("WebSocket error (%s); reconnecting in %ss", exc, _RECONNECT_BACKOFF)
+                time.sleep(_RECONNECT_BACKOFF)
+    except KeyboardInterrupt:
+        sent_total += _flush(kinesis, stream_name, batch, dry_run)  # flush pending on Ctrl+C
+        logger.info("Interrupted -- flushed pending trades.")
+    logger.info(
+        "Stream %s: %d trades -> %s",
+        "stopped" if continuous else "window complete",
+        sent_total,
+        stream_name,
+    )
     return sent_total
 
 
 def main() -> None:
-    """CLI entry point: read config from the environment and stream for one window."""
+    """CLI entry point: read config from the environment and stream.
+
+    ``STREAM_WINDOW_SECONDS`` sets the run length: a positive value streams one bounded
+    window (default 60); ``0`` streams CONTINUOUSLY until Ctrl+C. ``DRY_RUN=1`` logs
+    without writing to Kinesis; ``STREAM_PRODUCTS`` overrides products (default BTC/ETH).
+    """
     products = [
         p.strip()
         for p in (os.getenv("STREAM_PRODUCTS") or _DEFAULT_PRODUCTS).split(",")

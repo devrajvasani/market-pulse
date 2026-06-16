@@ -7,7 +7,8 @@ and LocalStack without a Lambda layer.
 
 Idempotency: the S3 key is derived from the batch's last Kinesis sequence number, so a
 RETRIED batch overwrites the same key rather than duplicating a file; Silver additionally
-dedups by ``trade_id``. Batches that keep failing are parked by the event-source mapping's
+dedups by the natural key ``(product_id, trade_id)``. Batches that keep failing are parked
+by the event-source mapping's
 on-failure DLQ (Section L.5).
 """
 
