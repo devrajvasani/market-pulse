@@ -37,16 +37,19 @@ models:
     # ignores it. market_movers is a tiny point-in-time table (one row per coin), so it
     # stays unpartitioned to avoid many micro-partitions.
     silver:
-      # Incremental Iceberg MERGE: re-runs upsert new/changed rows on the natural key
-      # instead of rebuilding the whole table (production idempotency). First run (no
-      # table yet) builds in full; later runs process only recent dates (see the
-      # is_incremental() filter in silver_prices.sql) and MERGE them in.
-      +materialized: incremental
-      +incremental_strategy: merge
-      +unique_key: ["coin_id", "snapshot_date", "snapshot_hour"]
+      # Silver-layer defaults: full-rebuild Iceberg tables partitioned by date (applies to
+      # silver_trades and any future silver model).
+      +materialized: table
       +table_type: iceberg
       +s3_data_dir: "{{ env_var('DBT_SILVER_DATA', '') }}"
       +partitioned_by: ["snapshot_date"]
+      silver_prices:
+        # silver_prices specifically uses an incremental Iceberg MERGE on its natural key
+        # (production idempotency): first run builds full; later runs process only recent
+        # dates (see the is_incremental() filter in silver_prices.sql) and MERGE them in.
+        +materialized: incremental
+        +incremental_strategy: merge
+        +unique_key: ["coin_id", "snapshot_date", "snapshot_hour"]
     gold:
       +materialized: table
       +table_type: iceberg

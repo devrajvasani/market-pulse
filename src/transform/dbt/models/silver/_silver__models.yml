@@ -39,3 +39,40 @@ models:
               arguments:
                 min_value: 0
                 inclusive: false
+
+  - name: silver_trades
+    description: >
+      Typed, deduplicated streaming trades — one row per (product_id, trade_id),
+      with real timestamps. Fed by the Kinesis consumer (bronze/trades NDJSON).
+      The DQ gate for the streaming Silver layer.
+    # Coinbase trade_id is a PER-PRODUCT sequence (unique within a product, not
+    # globally), so the natural key is (product_id, trade_id). Assert that combination —
+    # a global unique on trade_id alone would silently mask cross-product collisions
+    # (the dedup would drop a real trade and the test would still pass).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - product_id
+              - trade_id
+    columns:
+      - name: trade_id
+        description: "Exchange trade id — a per-product sequence; part of the natural key."
+        data_tests:
+          - not_null
+      - name: product_id
+        description: "Trading pair, e.g. BTC-USD — part of the natural key."
+        data_tests:
+          - not_null
+      - name: event_time
+        description: "When the trade happened on the exchange (UTC)."
+        data_tests:
+          - not_null
+      - name: price
+        description: "Trade price — present and positive."
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false

@@ -123,6 +123,11 @@ def bronze_data_location() -> str:
     return f"s3://{bronze_bucket()}/prices"
 
 
+def trades_stream_name() -> str:
+    """Return the Kinesis trades-stream name (default ``marketpulse-dev-stream-trades``)."""
+    return (os.getenv("STREAM_NAME") or "").strip() or f"{PROJECT}-{environment()}-stream-trades"
+
+
 def athena_database() -> str:
     """Return the Glue/Athena database name (default ``marketpulse_dev``; env-overridable)."""
     return (os.getenv("ATHENA_DATABASE") or "").strip() or f"{PROJECT}_{environment()}"

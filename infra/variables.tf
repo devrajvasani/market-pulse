@@ -38,3 +38,9 @@ variable "enable_glue_spark" {
   type        = bool
   default     = false
 }
+
+variable "enable_streaming" {
+  description = "Build the Stage 4 streaming path (Kinesis trades stream + consumer Lambda + SQS DLQ + event-source mapping). Opt-in: Kinesis bills ~$0.015/shard-hour, so set true for a test window then false + apply to remove. LocalStack runs it free via tflocal."
+  type        = bool
+  default     = false
+}

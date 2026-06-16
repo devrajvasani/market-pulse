@@ -120,7 +120,7 @@
       <div class="spacer"></div>
       <div class="controls">
         <span id="status">loading…</span>
-        <label class="auto"><input type="checkbox" id="auto" /> auto 10s</label>
+        <label class="auto"><input type="checkbox" id="auto" /> auto 3s</label>
         <button class="primary" id="refresh">↻ Refresh</button>
       </div>
     </header>
@@ -466,7 +466,7 @@
 
       function setAuto(on) {
         if (timer) { clearInterval(timer); timer = null; }
-        if (on) timer = setInterval(load, 10000);
+        if (on) timer = setInterval(load, 3000);  // 3s: show streamed Bronze landing ~live
         localStorage.setItem("ls-auto", on ? "1" : "0");
       }
 

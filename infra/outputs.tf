@@ -60,3 +60,14 @@ output "glue_bronze_to_silver_job" {
   description = "Name of the Stage 3d Glue PySpark job; start it with `aws glue start-job-run --job-name <name>`."
   value       = one(aws_glue_job.bronze_to_silver[*].name)
 }
+
+# ── Stage 4: streaming (null unless enable_streaming=true) ──
+output "trades_stream_name" {
+  description = "Kinesis trades stream the producer writes to (set STREAM_NAME to it)."
+  value       = one(aws_kinesis_stream.trades[*].name)
+}
+
+output "trades_dlq_url" {
+  description = "SQS dead-letter queue URL for trade batches the consumer couldn't process."
+  value       = one(aws_sqs_queue.trades_dlq[*].url)
+}
