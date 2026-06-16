@@ -21,6 +21,7 @@
 | Component | What it is |
 | --- | --- |
 | `producer.py` | Subscribes to the Coinbase `matches` channel for a set of products, normalises each trade, and `put_records` batches to Kinesis. Runs a **bounded window** (`STREAM_WINDOW_SECONDS`, default 60 — never idle, the AWS default) **or continuously** (`STREAM_WINDOW_SECONDS=0`, Ctrl+C to stop, flushes on interrupt) for the local demo. `DRY_RUN=1` logs without writing. Config-only — no emulator/cloud branches. |
+| `Dockerfile` | Container image (`marketpulse-producer:local`) for the bounded-window helper `scripts/run-stream-window.sh` — runs the same `producer.py` in a container, reaching LocalStack via `host.docker.internal:4566` or real AWS by config. |
 | `aws_kinesis_stream.trades` | 1-shard **provisioned** stream, SSE-KMS (lake CMK), 24h retention. |
 | `consumer.py` (Lambda) | Triggered by the Kinesis event-source mapping; decodes the batch and writes **one NDJSON file** to `bronze/trades/snapshot_date=…/snapshot_hour=…/{last_sequence_number}.json` using **boto3 only**. |
 | `aws_sqs_queue.trades_dlq` | Dead-letter queue (CMK-encrypted, 14-day retention) — the ESM parks batches that keep failing after retries. |
@@ -34,9 +35,17 @@
 | `silver_trades` | Silver | typed (NDJSON strings → `double`/`bigint`/timestamps via the `parse_iso_timestamp` macro), **deduped to one row per `(product_id, trade_id)`** (at-least-once delivery can re-land a trade). |
 | `gold_latest_price` | Gold | the **latest trade per `product_id`** (row_number over `event_time desc, ingested_at desc`) — the streaming serving mart. |
 
-**Data-quality gate** — `silver_trades` asserts `not_null` keys/timestamps, `price > 0`, and a **`unique_combination_of_columns(product_id, trade_id)`** natural-key test; `gold_latest_price` asserts one `unique`/`not_null` row per `product_id` with a positive `latest_price`. Offline `pytest` (`tests/test_*`) exercises the producer normalisation, the consumer partition/idempotency logic, and the Silver dedup on DuckDB fixtures — no infra, $0.
+**Data-quality gate** — `silver_trades` asserts `not_null` keys/timestamps, `price > 0`, and a **`unique_combination_of_columns(product_id, trade_id)`** natural-key test; `gold_latest_price` asserts one `unique`/`not_null` row per `product_id` with a positive `latest_price`. Offline `pytest` — **55 passing**; the streaming-specific files are `tests/test_producer.py`, `tests/test_consumer.py`, `tests/test_silver_trades.py` — exercises the producer normalisation, the consumer decode / idempotent-key / NDJSON-body logic, and the Silver dedup on DuckDB fixtures (no infra, $0).
 
 **Continuous-streaming tooling** (local learning extension; cloud-agnostic) — `producer.py`'s continuous mode (`STREAM_WINDOW_SECONDS=0`), `scripts/refresh_marts_loop.py` (loops `dbt build` + `dbt show gold_latest_price` every `REFRESH_SECONDS`, on any dbt target), and the LocalStack dashboard refresh dialed to **3s** so streamed Bronze appears ~live. On AWS the equivalents are the ESM (auto-drives the consumer) + the Stage-6 EventBridge schedule (drives the refresh) — no extra code.
+
+## The concept — at-least-once streaming → idempotent landing
+
+Kinesis is a **poll-based** stream: the event-source mapping polls the shard and can **re-deliver** a batch (at-least-once). Stage 4 makes that safe without exactly-once *delivery*:
+- **Idempotent landing** — the consumer keys each Bronze file on the batch's **last Kinesis sequence number**, so a re-delivered batch **overwrites the same S3 object** instead of duplicating a file.
+- **Dedup in Silver** — `silver_trades` dedups on the natural key **`(product_id, trade_id)`** (Coinbase `trade_id` is per-product), so any residual duplicate trade collapses to one row.
+
+Net: **exactly-once *in effect*** — duplicates can't accumulate in Bronze (same key) or survive into Silver (dedup), even though Kinesis only guarantees at-least-once. See [Key decisions](#key-decisions) for the rationale.
 
 ## The config-swap (how local ↔ AWS works)
 
@@ -47,6 +56,7 @@ The **same producer and consumer code** run in both places, selected only by `AW
 | Kinesis / Lambda / SQS | LocalStack (`AWS_ENDPOINT_URL=…:4566`, `test`/`test` creds) | real services (`AWS_PROFILE`) |
 | Consumer writes | `bronze/trades/…` NDJSON via boto3 | identical |
 | **Bronze read (dbt)** | DuckDB `read_json_auto(DBT_TRADES_GLOB, format='newline_delimited', hive_partitioning=true)` | Athena Glue table `bronze_trades` (JSON SerDe) |
+| **Cost** | $0 (no shard-hours; Community tier) | ~$0.015/shard-hour while `enable_streaming=true`, $0 when gated off |
 
 The **deliberate portability choice**: the consumer writes **NDJSON with boto3 only** — no pandas/pyarrow/awswrangler — so it needs **no Lambda layer** and runs unchanged on LocalStack (where the awswrangler layer is a Pro feature). dbt's `_sources.yml` carries both read paths; the model SQL never changes.
 
@@ -108,7 +118,8 @@ uv run python -m src.ingestion.streaming.producer
 
 # Terminal B (new window) -- periodic Silver/Gold refresh + latest-price print (~every 10s):
 $env:AWS_ENDPOINT_URL="http://localhost:4566"; $env:AWS_ACCESS_KEY_ID="test"; $env:AWS_SECRET_ACCESS_KEY="test"; $env:AWS_DEFAULT_REGION="us-east-1"
-$env:BRONZE_BUCKET="<bronze-bucket-from-step-2>"
+# env doesn't persist across windows -> re-derive the bronze bucket name here:
+Push-Location infra; $env:BRONZE_BUCKET=(uv run tflocal output -json bucket_names | ConvertFrom-Json).bronze; Pop-Location
 $env:DBT_TRADES_GLOB="s3://$($env:BRONZE_BUCKET)/trades/**/*.json"; $env:REFRESH_SECONDS="10"
 uv run python scripts/refresh_marts_loop.py
 ```
@@ -147,6 +158,8 @@ $names = terraform -chdir=infra output -json bucket_names | ConvertFrom-Json
 $res   = terraform -chdir=infra output -raw athena_results_bucket
 $env:DBT_SILVER_DATA="s3://$($names.silver)/"; $env:DBT_GOLD_DATA="s3://$($names.gold)/"
 $env:DBT_ATHENA_STAGING="s3://$res/query-results/"; $env:AWS_DEFAULT_REGION="us-east-1"
+# No DBT_TRADES_GLOB on the athena target -- Silver reads the bronze_trades Glue table (not NDJSON via DuckDB).
+# The apply needs no awswrangler_layer_arn -- the consumer is boto3-only; that layer var only matters for the Stage-1 batch ingest Lambda.
 dbt build --target athena --select silver_trades gold_latest_price --profiles-dir src/transform/dbt --project-dir src/transform/dbt
 # Verify (Athena workgroup marketpulse-dev-athena-analytics):  SELECT * FROM gold_latest_price ORDER BY product_id;
 
@@ -200,6 +213,8 @@ The live `terraform apply -var enable_streaming=true` created **5 of 8** resourc
 | `silver_trades` typed + deduped on the natural key, DQ-gated | ✅ DuckDB; `dbt parse` clean on the Athena config |
 | `gold_latest_price` = latest trade per product | ✅ LocalStack |
 | Live AWS run (real Kinesis) | ⏳ account-blocked (`SubscriptionRequiredException`) → future scope |
+
+**Verified:** `ruff` ✓ · `ruff format --check` ✓ · **55 pytest** ✓ · `terraform validate` ✓ on the streaming stack · `dbt build`/`show` green. **Cross-rail isolation:** the LocalStack rail uses **separate local Terraform state** (the `backend "local"` override) + the LocalStack endpoint, so its buckets (`…-bronze-<localstack-suffix>`) never collide with the real-AWS rail (`…-bronze-<aws-suffix>`, S3 backend) — same code, fully isolated, no cross-write.
 
 ## Deferred / future scope
 
