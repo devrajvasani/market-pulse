@@ -121,13 +121,14 @@ that infrastructure (data in and out) is done by the running application, **neve
 | File                               | Role                                                                                                                                                                                                                                                   |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [main.tf](../infra/main.tf)           | **Providers + global tags.** Declares `aws`/`random`/`archive`, pins versions, sets `default_tags`. **No resources.**                                                                                                              |
-| [variables.tf](../infra/variables.tf) | **The knobs:** `region` (`us-east-1`), `environment` (`dev`), `owner` (required), `awswrangler_layer_arn` (`""`), `ingest_schedule` (`rate(1 hour)`), `enable_catalog` (`true`; `false` skips Glue/Athena for LocalStack), `enable_glue_spark` (`false`; opt-in Stage-3d Glue Spark job), `enable_streaming` (`false`; opt-in Stage-4 Kinesis/consumer/DLQ streaming stack). Real values come from `terraform.tfvars` (gitignored) or `TF_VAR_*`. |
+| [variables.tf](../infra/variables.tf) | **The knobs:** `region` (`us-east-1`), `environment` (`dev`), `owner` (required), `awswrangler_layer_arn` (`""`), `ingest_schedule` (`rate(1 hour)`), `enable_catalog` (`true`; `false` skips Glue/Athena for LocalStack), `enable_glue_spark` (`false`; opt-in Stage-3d Glue Spark job), `enable_streaming` (`false`; opt-in Stage-4 Kinesis/consumer/DLQ streaming stack), `enable_rag` (`false`; opt-in Stage-5 RAG Lambdas — requires `enable_catalog`), `bedrock_embed_model`/`bedrock_gen_model` (scope the RAG Bedrock ARNs). Real values come from `terraform.tfvars` (gitignored) or `TF_VAR_*`. |
 | [storage.tf](../infra/storage.tf)     | **Storage foundation:** `random_id` suffix → `module.kms` → `module.s3` (×3 via `for_each`).                                                                                                                                          |
 | [ingest.tf](../infra/ingest.tf)       | **Batch-ingest component:** `module.secret` → `module.iam_ingest` → `archive_file` → `module.lambda_ingest` → `module.eventbridge_ingest`.                                                                                         |
 | [catalog.tf](../infra/catalog.tf)     | **(Stage 2) Catalog + query:** `module.athena_results` + `module.glue_catalog` + `module.athena` — all gated by `enable_catalog`.                                                                                       |
 | [transform.tf](../infra/transform.tf) | **(Stage 3d) Glue Spark learning job:** inline `aws_iam_role` + `aws_iam_role_policy` + `aws_s3_object` (script) + `aws_glue_job` — gated by `enable_glue_spark` (default `false`). *Not* a module (one-off learning resource). Account-blocked on this Free Plan. |
 | [streaming.tf](../infra/streaming.tf) | **(Stage 4) Real-time trades:** inline `aws_kinesis_stream` + `aws_sqs_queue` (DLQ) + `aws_iam_role`/`_policy` + `module.lambda_trades_consumer` (reuses the `lambda` module) + `aws_lambda_event_source_mapping` + `aws_glue_catalog_table.bronze_trades` — all gated by `enable_streaming` (default `false`); the table also needs `enable_catalog`. Account-blocked on this Free Plan (Kinesis). |
-| [outputs.tf](../infra/outputs.tf)     | **Post-apply readout:** `bucket_names`, `kms_key_arn`, `secret_arn`, `ingest_role_arn`, `ingest_function_name`, `ingest_schedule_rule`; **+ Stage 2:** `glue_database`, `athena_workgroup`, `athena_results_bucket` (null when catalog off); **+ Stage 3:** `glue_bronze_to_silver_job` (null unless `enable_glue_spark`); **+ Stage 4:** `trades_stream_name`, `trades_dlq_url` (null unless `enable_streaming`).                                                                                              |
+| [rag.tf](../infra/rag.tf) | **(Stage 5) RAG assistant:** `archive_file` + three least-privilege `aws_iam_role`/`_policy` + three `module.lambda_rag_*` (ingest / index / assistant, reuse the `lambda` module) — all gated by `enable_rag` (default `false`, requires `enable_catalog`). Assistant reads `gold/rag/<env>/`, queries Gold via Athena/Glue (read-only), invokes scoped Bedrock model ARNs. **AWS-deferred:** runs locally via CLI/API (Ollama+DuckDB); a real deploy also needs a faiss/numpy Lambda layer or container. |
+| [outputs.tf](../infra/outputs.tf)     | **Post-apply readout:** `bucket_names`, `kms_key_arn`, `secret_arn`, `ingest_role_arn`, `ingest_function_name`, `ingest_schedule_rule`; **+ Stage 2:** `glue_database`, `athena_workgroup`, `athena_results_bucket` (null when catalog off); **+ Stage 3:** `glue_bronze_to_silver_job` (null unless `enable_glue_spark`); **+ Stage 4:** `trades_stream_name`, `trades_dlq_url` (null unless `enable_streaming`); **+ Stage 5:** `rag_assistant_function_name` (null unless `enable_rag`, defined in `rag.tf`).                                                                                              |
 
 ---
 
@@ -371,7 +372,8 @@ What each stage adds to `infra/`. Append a row when a stage lands; keep §4–§
 | **2**  | Catalog + first SQL                                      | `catalog.tf`                              | `glue_catalog` (DB + `bronze_prices` table, partition projection), `athena` (workgroup, 100 MB cap), `athena_results` bucket — all gated by `enable_catalog` | ✅ DEPLOYED to AWS; LocalStack via the DuckDB twin (catalog gated off) |
 | **3**  | Transform to Silver + Gold | `transform.tf` | (3d) inline Glue Spark job + IAM, gated `enable_glue_spark` (default off). **Silver/Gold Iceberg tables are built by dbt at runtime — not Terraform.** | ✅ SQL/Iceberg path DEPLOYED (Athena); Glue job account-blocked → gated off |
 | **4**  | Streaming (real-time trades) | `streaming.tf` | inline Kinesis stream + consumer Lambda (reuses `lambda` module) + SQS DLQ + IAM + event-source mapping + `bronze_trades` Glue table — all gated `enable_streaming` (default off). **`silver_trades`/`gold_latest_price` built by dbt at runtime.** | ✅ LocalStack-validated end-to-end; Kinesis account-blocked on AWS → gated off |
-| **5+** | RAG · orchestration · CI/CD | _tbd_                                       | _Not yet built (e.g. FAISS, Step Functions)._ | ⏳ planned                                         |
+| **5**  | RAG assistant (hybrid) | `rag.tf` | inline 3× least-privilege IAM + 3× `module.lambda_rag_*` (ingest/index/assistant, reuse `lambda` module) — all gated `enable_rag` (default off, needs `enable_catalog`). **The `rag/` app runs locally (Ollama+DuckDB+FAISS-in-S3); Lambdas are the deploy shape.** | ✅ Local-validated (CLI/API/UI); AWS-deferred (Bedrock access + faiss layer) → gated off |
+| **6+** | Orchestration · CI/CD | _tbd_                                       | _Not yet built (e.g. Step Functions, GitHub Actions deploy)._ | ⏳ planned                                         |
 
 ### Resource names created in Stage 1 (`environment = dev`)
 
@@ -416,6 +418,16 @@ The **`silver_trades`/`gold_latest_price`** tables are **not** Terraform — **d
 
 **Kinesis account-blocked:** `Kinesis: CreateStream` returns `SubscriptionRequiredException: The AWS Access Key Id needs a subscription for the service` (account-level Free-Plan restriction, same class as the Glue-ETL block). The live apply created the other 7 streaming resources cleanly before the stream call was refused; the partial deploy was torn down (~$0). The pipeline is fully validated on LocalStack; the live AWS run is deferred to an unrestricted account, the reviewed IaC stays gated off.
 
+### Resource names created in Stage 5 (`environment = dev`)
+
+All gated by **`enable_rag`** (default **off**, requires `enable_catalog`) — **$0** until applied; the `rag/` app runs locally at $0:
+
+- `marketpulse-dev-role-lambda-rag-ingest` / `…-rag-index` / `…-rag-assistant` (+ inline `…-policy` each)
+- `marketpulse-dev-lambda-rag-ingest` (RSS → `bronze/docs/`) · `…-rag-index` (embed → `gold/rag/<env>/` FAISS) · `…-rag-assistant` (retrieve + templated Gold query → Bedrock) — all reuse the `lambda` module
+- the FAISS index objects `gold/rag/<env>/{index.faiss,meta.json}` (data-plane, written by the index Lambda / local CLI — not Terraform)
+
+**AWS-deferred (gated off):** the assistant is fully validated **locally** (CLI + FastAPI + Streamlit; Ollama + DuckDB-over-the-dbt-Gold-DB + FAISS-in-LocalStack-S3). A real AWS deploy needs (a) **Bedrock model access** granted in the console and (b) a Lambda **layer or container image** carrying `faiss`+`numpy` (binary deps can't ride a plain zip). The reviewed IaC stays gated off. See the [stage-5 doc](stages/stage-5-rag.md).
+
 ### Remote state backend (Stage 1)
 
 State lives in **S3** (`marketpulse-dev-tfstate-<account>`) with a **DynamoDB lock**
@@ -437,7 +449,8 @@ infra/
 ├── catalog.tf               (Stage 2) athena_results bucket + glue_catalog + athena — gated by enable_catalog
 ├── transform.tf             (Stage 3d) Glue Spark job + IAM (inline) — gated by enable_glue_spark (default off)
 ├── streaming.tf             (Stage 4) Kinesis stream + consumer Lambda + SQS DLQ + IAM + ESM + bronze_trades — gated by enable_streaming (default off)
-├── outputs.tf               bucket_names · kms/secret/role/function/rule · glue_database · athena_workgroup · athena_results_bucket · glue_bronze_to_silver_job · trades_stream_name · trades_dlq_url
+├── rag.tf                   (Stage 5) 3× RAG Lambdas (ingest/index/assistant) + least-privilege IAM — gated by enable_rag (default off); AWS-deferred
+├── outputs.tf               bucket_names · kms/secret/role/function/rule · glue_database · athena_workgroup · athena_results_bucket · glue_bronze_to_silver_job · trades_stream_name · trades_dlq_url · rag_assistant_function_name
 ├── .terraform.lock.hcl      provider version locks (committed)
 └── modules/
     ├── kms/                 CMK + alias

@@ -1,4 +1,6 @@
--- Latest snapshot per coin with its short-horizon price moves, ranked. change_rank_24h
+-- Latest snapshot per coin with its short-horizon price moves + all-time-high reference
+-- (ath = the all-time-high price, ath_change_pct = % the current price sits below that ATH),
+-- ranked. change_rank_24h
 -- = 1 is the biggest 24h gainer; the largest rank is the biggest loser. A point-in-time
 -- "what's moving now" serving table. Columns are listed explicitly (no `*, expr`) so the
 -- same SQL parses on both DuckDB and Athena (Trino). The rank uses `nulls last` (CoinGecko
@@ -18,6 +20,8 @@ with ranked as (
         price_change_pct_1h,
         price_change_pct_24h,
         price_change_pct_7d,
+        ath,
+        ath_change_pct,
         snapshot_date,
         snapshot_hour,
         row_number() over (
@@ -40,6 +44,8 @@ latest as (
         price_change_pct_1h,
         price_change_pct_24h,
         price_change_pct_7d,
+        ath,
+        ath_change_pct,
         snapshot_date,
         snapshot_hour
     from ranked

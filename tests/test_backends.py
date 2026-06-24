@@ -1,14 +1,11 @@
-"""Critical tests: backend factory, the DuckDB local twin, and the Athena cloud query."""
+"""Critical tests: backend factory, the DuckDB local twin (Bronze + Gold), and Athena."""
 
+import duckdb
 import pandas as pd
-import pytest
 
 from config import settings
 from src.backends.athena_backend import AthenaBackend
-from src.backends.bedrock_backend import BedrockBackend
 from src.backends.duckdb_backend import DuckDBBackend
-from src.backends.llm_client import LLMClient
-from src.backends.ollama_backend import OllamaBackend
 from src.backends.query_engine import QueryEngine
 
 
@@ -27,29 +24,18 @@ def test_aws_query_engine_is_athena(monkeypatch):
     assert isinstance(engine, QueryEngine)
 
 
-def test_local_llm_client_is_ollama(monkeypatch):
+def test_local_gold_query_engine_is_duckdb(monkeypatch):
     monkeypatch.setenv("APP_ENV", "local")
-    client = settings.get_llm_client()
-    assert isinstance(client, OllamaBackend)
-    assert isinstance(client, LLMClient)
+    engine = settings.get_gold_query_engine()
+    assert isinstance(engine, DuckDBBackend)
+    assert isinstance(engine, QueryEngine)
 
 
-def test_aws_llm_client_is_bedrock(monkeypatch):
+def test_aws_gold_query_engine_is_athena(monkeypatch):
     monkeypatch.setenv("APP_ENV", "aws")
-    client = settings.get_llm_client()
-    assert isinstance(client, BedrockBackend)
-    assert isinstance(client, LLMClient)
-
-
-def test_llm_clients_expose_methods_placeholder():
-    # Bedrock/Ollama are still stubs until Stage 5.
-    for client in (OllamaBackend(), BedrockBackend()):
-        assert hasattr(client, "embed")
-        assert hasattr(client, "generate")
-        with pytest.raises(NotImplementedError):
-            client.embed(["hello"])
-        with pytest.raises(NotImplementedError):
-            client.generate("hello")
+    engine = settings.get_gold_query_engine()
+    assert isinstance(engine, AthenaBackend)
+    assert isinstance(engine, QueryEngine)
 
 
 # ── settings: Athena database / workgroup defaults ──────────────────────────────
@@ -108,6 +94,20 @@ def test_duckdb_backend_accumulates_hourly_partitions(tmp_path):
         "SELECT count(*) AS row_count FROM bronze_prices"
     )
     assert rows == [{"row_count": 4}]  # 2 hours x 2 coins
+
+
+def test_duckdb_backend_reads_gold_database(tmp_path):
+    # Gold mode: query the dbt-materialised marts by name from a DuckDB database file.
+    db_path = tmp_path / "marketpulse.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute(
+        "CREATE TABLE gold_latest_price AS SELECT 'BTC-USD' AS product_id, 100.5 AS latest_price"
+    )
+    con.close()
+    rows = DuckDBBackend(database_path=str(db_path)).run_sql(
+        "SELECT product_id, latest_price FROM gold_latest_price"
+    )
+    assert rows == [{"product_id": "BTC-USD", "latest_price": 100.5}]
 
 
 # ── Athena cloud backend (awswrangler mocked) ───────────────────────────────────

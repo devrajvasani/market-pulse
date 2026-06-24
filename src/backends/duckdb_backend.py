@@ -1,8 +1,13 @@
 """DuckDB implementation of the QueryEngine port (local, free).
 
-The free stand-in for Athena: it reads the SAME Bronze Parquet directly with
-``read_parquet`` (Hive partitioning on ``snapshot_date`` / ``snapshot_hour``) and exposes
-it as a ``bronze_prices`` view, so the *identical* SQL runs on both engines (Section B).
+The free stand-in for Athena. Two modes:
+
+* **Bronze** (default): reads the SAME Bronze Parquet directly with ``read_parquet`` (Hive
+  partitioning on ``snapshot_date`` / ``snapshot_hour``) and exposes it as a ``bronze_prices``
+  view, so the *identical* SQL runs on both engines (Section B).
+* **Gold** (``database_path`` set): opens the dbt-materialised Gold DuckDB database read-only,
+  so the Gold marts (e.g. ``gold_latest_price``) are queryable by name — the local twin of
+  Athena-over-Glue for the RAG assistant's live numbers.
 """
 
 from __future__ import annotations
@@ -19,18 +24,28 @@ from src.common.errors import TransformError
 class DuckDBBackend(QueryEngine):
     """Run SQL on local DuckDB over the Bronze Parquet — the free Athena twin."""
 
-    def __init__(self, bronze_location: str | None = None) -> None:
+    def __init__(
+        self, bronze_location: str | None = None, database_path: str | None = None
+    ) -> None:
         """Initialise the backend.
 
         Args:
             bronze_location: Prefix of the Bronze prices Parquet — an ``s3://…/prices`` URI
                 (real AWS or LocalStack) or a local directory (used by tests). Defaults to
-                ``settings.bronze_data_location()`` (resolved lazily at query time).
+                ``settings.bronze_data_location()`` (resolved lazily at query time). Ignored when
+                ``database_path`` is set.
+            database_path: Path to a dbt-materialised DuckDB database (the Gold marts). When set,
+                the backend opens it **read-only** and does NOT register the Bronze view — the
+                Gold tables are queried by name. This is the local twin of Athena-over-Glue.
         """
         self._bronze_location = bronze_location
+        self._database_path = database_path
 
     def _connect(self) -> duckdb.DuckDBPyConnection:
-        """Open a connection and register ``bronze_prices`` over the Parquet."""
+        """Open a connection: Gold database (read-only) or the Bronze-Parquet view."""
+        if self._database_path is not None:
+            # Gold mode: the marts already exist as tables in the dbt DuckDB file.
+            return duckdb.connect(self._database_path, read_only=True)
         con = duckdb.connect()
         location = (self._bronze_location or settings.bronze_data_location()).replace("\\", "/")
         if location.startswith("s3://"):

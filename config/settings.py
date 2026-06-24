@@ -20,7 +20,6 @@ try:
 except ImportError:  # not installed on Lambda; there env vars are set directly, no .env files
     load_dotenv = None  # type: ignore[assignment]
 
-from src.backends.llm_client import LLMClient
 from src.backends.query_engine import QueryEngine
 from src.common.errors import ConfigError
 
@@ -114,6 +113,37 @@ def marketdata_secret_name() -> str:
     )
 
 
+def gold_bucket() -> str:
+    """Return the Gold bucket name (the durable serving layer; also holds the RAG index).
+
+    Terraform sets ``GOLD_BUCKET`` on the function (real bucket names carry a unique suffix);
+    for local runs export it from ``terraform output``.
+
+    Raises:
+        ConfigError: if ``GOLD_BUCKET`` is not set.
+    """
+    name = (os.getenv("GOLD_BUCKET") or "").strip()
+    if not name:
+        raise ConfigError(
+            "GOLD_BUCKET is not set. Terraform sets it on the function; "
+            "for local runs export it from `terraform output`."
+        )
+    return name
+
+
+def gold_duckdb_path() -> str:
+    """Return the path to the dbt-materialised local Gold DuckDB database (the Gold Athena twin).
+
+    On the local (``duckdb``) dbt target, dbt writes the Gold marts into this database file
+    (see ``src/transform/dbt/profiles.yml``); the RAG assistant reads it for live numbers.
+    Override with ``GOLD_DUCKDB_PATH``.
+    """
+    override = (os.getenv("GOLD_DUCKDB_PATH") or "").strip()
+    if override:
+        return override
+    return str(_REPO_ROOT / "src" / "transform" / "dbt" / "target" / "marketpulse.duckdb")
+
+
 def bronze_data_location() -> str:
     """Return the S3 URI of the Bronze prices prefix (the DuckDB twin reads this).
 
@@ -141,7 +171,7 @@ def athena_workgroup() -> str:
 
 
 def get_query_engine() -> QueryEngine:
-    """Return the active QueryEngine backend (Athena on ``aws``, DuckDB on ``local``)."""
+    """Return the active QueryEngine over **Bronze** (Athena on ``aws``, DuckDB on ``local``)."""
     if active_env() == "aws":
         from src.backends.athena_backend import AthenaBackend
 
@@ -151,12 +181,18 @@ def get_query_engine() -> QueryEngine:
     return DuckDBBackend()
 
 
-def get_llm_client() -> LLMClient:
-    """Return the active LLMClient backend (Bedrock on ``aws``, Ollama on ``local``)."""
+def get_gold_query_engine() -> QueryEngine:
+    """Return a QueryEngine over the **Gold** marts (the RAG assistant's live-numbers source).
+
+    On ``aws`` this is Athena over the Glue catalog (Gold Iceberg tables). Locally, Gold is
+    materialised by dbt into a DuckDB database file, so we open that read-only — the Bronze
+    Parquet view is irrelevant for Gold. The LLM adapter now lives in the standalone ``rag/``
+    project; this Gold QueryEngine is the only backend seam it shares with the core.
+    """
     if active_env() == "aws":
-        from src.backends.bedrock_backend import BedrockBackend
+        from src.backends.athena_backend import AthenaBackend
 
-        return BedrockBackend()
-    from src.backends.ollama_backend import OllamaBackend
+        return AthenaBackend()
+    from src.backends.duckdb_backend import DuckDBBackend
 
-    return OllamaBackend()
+    return DuckDBBackend(database_path=gold_duckdb_path())
