@@ -1,0 +1,48 @@
+# MarketPulse RAG — LLM provider registry (version-controlled; NO secrets).
+#
+# Pick which provider does embeddings vs generation, plus an optional fallback for each
+# (the fallback engages automatically if the primary fails after its own retries).
+# API keys are NEVER stored here — only the *name* of the env var that holds each key
+# (read from the environment / .env). Override the active provider without editing this file
+# via RAG_EMBED_PROVIDER / RAG_GEN_PROVIDER (+ RAG_EMBED_FALLBACK / RAG_GEN_FALLBACK).
+#
+# Embedding-capable providers: ollama, gemini, openai, bedrock (Anthropic + Groq are gen-only).
+# Switching the embed provider/model changes the vector space -> rebuild the index (`build-index`).
+
+embed:
+  provider: gemini # embeddings (NO fallback). NB: Ollama Cloud has no embeddings API -> use gemini/openai/bedrock
+generate:
+  provider: ollama # who composes answers (Ollama Cloud / Turbo)
+  fallback: gemini # optional: fall back to Gemini if the primary generation provider errors
+
+# Shared generation parameters.
+max_output_tokens: 1024
+temperature: 0.2
+http_timeout_s: 120 # generous: hosted generation can take a few seconds
+
+providers:
+  ollama: # Ollama Cloud (Turbo) — hosted, API-key (bearer) auth; same /api/* endpoints as local.
+    api_key_env: OLLAMA_API_KEY
+    host_env: OLLAMA_HOST # override to http://localhost:11434 to use a local server instead
+    host: https://ollama.com
+    embed_model: qwen3-embedding:8b # use a model available on your Ollama Cloud account
+    gen_model: gpt-oss:120b # a cloud model (e.g. gpt-oss:120b, qwen3:480b, deepseek-v3.1:671b)
+  gemini: # Google AI Studio (free tier) — fast
+    api_key_env: GEMINI_API_KEY
+    embed_model: gemini-embedding-001 # current GA embedding model (text-embedding-004 is retired)
+    gen_model: gemini-2.0-flash
+  openai:
+    api_key_env: OPENAI_API_KEY
+    embed_model: text-embedding-3-small
+    gen_model: gpt-4o-mini
+  anthropic: # generation only (no embeddings API)
+    api_key_env: ANTHROPIC_API_KEY
+    gen_model: claude-haiku-4-5
+  groq: # generation only; OpenAI-compatible, very fast
+    api_key_env: GROQ_API_KEY
+    gen_model: llama-3.3-70b-versatile
+  bedrock: # AWS Bedrock via an API key (bearer token), no SigV4 creds needed
+    api_key_env: AWS_BEARER_TOKEN_BEDROCK
+    region: us-east-1
+    embed_model: amazon.titan-embed-text-v2:0
+    gen_model: anthropic.claude-3-5-haiku-20241022-v1:0

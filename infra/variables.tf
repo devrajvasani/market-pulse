@@ -44,3 +44,21 @@ variable "enable_streaming" {
   type        = bool
   default     = false
 }
+
+variable "enable_rag" {
+  description = "Build the Stage 5 RAG assistant (ingest + index + assistant Lambdas + least-privilege roles). Requires enable_catalog=true (the assistant queries Gold via Athena/Glue). Opt-in + AWS-deferred: the assistant runs locally via CLI/API (Ollama+DuckDB); a real Bedrock deploy also needs a faiss/numpy Lambda layer or container image (see docs/stages/stage-5-rag.md)."
+  type        = bool
+  default     = false
+}
+
+variable "bedrock_embed_model" {
+  description = "Bedrock embeddings model id used by the RAG index Lambda (scopes its bedrock:InvokeModel ARN)."
+  type        = string
+  default     = "amazon.titan-embed-text-v2:0"
+}
+
+variable "bedrock_gen_model" {
+  description = "Bedrock generation model id used by the RAG assistant Lambda (scopes its bedrock:InvokeModel ARN)."
+  type        = string
+  default     = "anthropic.claude-3-5-haiku-20241022-v1:0"
+}

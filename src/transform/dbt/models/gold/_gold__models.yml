@@ -119,7 +119,7 @@ models:
                 inclusive: true
 
   - name: gold_market_movers
-    description: "Latest snapshot per coin with short-horizon moves, ranked by 24h change."
+    description: "Latest snapshot per coin with short-horizon moves + all-time-high, ranked by 24h change."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -136,6 +136,21 @@ models:
               arguments:
                 min_value: 0
                 inclusive: false
+      - name: ath
+        description: "All-time-high price (CoinGecko); present and positive."
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: ath_change_pct
+        description: "Percent the current price sits relative to the ATH (>= -100; ~0 at a new high)."
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -100
+                inclusive: true
       - name: change_rank_24h
         description: "Sequential 24h-change rank (row_number, ties broken by coin_id); 1 = biggest gainer; always a positive integer, unique (no gaps/dupes)."
         data_tests:

@@ -16,6 +16,15 @@ dependencies = [
     "dbt-duckdb>=1.10,<2", # dbt adapter for the local DuckDB twin (free)
     "dbt-athena>=1.9,<2", # dbt adapter for the AWS path: writes Iceberg via Athena (Stage 3c)
     "websocket-client>=1.7", # streaming producer: Coinbase trades WebSocket -> Kinesis (Stage 4)
+    # ── Stage 5 — RAG assistant (the standalone rag/ project) ──────────────────
+    "faiss-cpu>=1.8",        # vector index for retrieval; pure-Python, identical on AWS + local
+    "numpy>=1.26",           # vectors backing FAISS
+    "fastapi>=0.115",        # RAG assistant API service
+    "uvicorn[standard]>=0.30", # ASGI server hosting the FastAPI app
+    "httpx>=0.27",           # Streamlit UI -> FastAPI client + multi-provider LLM REST calls
+    "streamlit>=1.37",       # RAG chatbot UI
+    "defusedxml>=0.7",       # hardened RSS/XML parsing (entity-expansion safe)
+    "pyyaml>=6.0",           # LLM provider registry (rag/config/llm.yaml)
 ]
 
 # Dev/test tooling. Installed via `uv sync` into the project venv; used by `make test` and CI.
@@ -46,13 +55,24 @@ ignore = ["D203", "D213"]  # resolve the two well-known mutually-exclusive docst
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection markers are designed to be called in argument defaults.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+]
+
 [tool.ruff.lint.per-file-ignores]
 # Tests and package markers don't need the full docstring set.
 "tests/*" = ["D100", "D101", "D102", "D103", "D104"]
+"rag/tests/*" = ["D100", "D101", "D102", "D103", "D104"]
 "**/__init__.py" = ["D104"]
 
 # ── Pytest ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["."]   # import `config.*` and `src.*` from the repo root
+testpaths = ["tests", "rag/tests"]
+pythonpath = ["."]   # import `config.*`, `src.*`, and `rag.*` from the repo root
 addopts = "-q"

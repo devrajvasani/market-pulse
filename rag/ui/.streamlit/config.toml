@@ -1,0 +1,12 @@
+# Theme for the MarketPulse RAG chatbot (loaded when Streamlit runs from rag/ui/).
+# The app also injects matching CSS inline, so it looks right regardless of CWD.
+[theme]
+base = "light"
+primaryColor = "#6C5CE7"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F5FB"
+textColor = "#1E2230"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"

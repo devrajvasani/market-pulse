@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Sample Crypto News</title>
+    <link>https://example.test/</link>
+    <description>Test feed</description>
+    <item>
+      <title>Bitcoin jumps 8% this week</title>
+      <link>https://example.test/articles/btc-jumps</link>
+      <guid>https://example.test/articles/btc-jumps</guid>
+      <pubDate>Mon, 16 Jun 2026 09:00:00 +0000</pubDate>
+      <description><![CDATA[<p>Bitcoin <strong>rallied</strong> to new highs &amp; led the market.</p>]]></description>
+    </item>
+    <item>
+      <title>Ethereum upgrade ships</title>
+      <link>https://example.test/articles/eth-upgrade</link>
+      <guid>https://example.test/articles/eth-upgrade</guid>
+      <pubDate>Sun, 15 Jun 2026 12:30:00 +0000</pubDate>
+      <description>Ether developers shipped a long-awaited upgrade.</description>
+    </item>
+  </channel>
+</rss>

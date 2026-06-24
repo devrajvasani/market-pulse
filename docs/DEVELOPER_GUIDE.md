@@ -55,9 +55,11 @@ Manager) need no adapter — `boto3` respects `AWS_ENDPOINT_URL`. Switching
 environments is changing `APP_ENV` and loading a different `.env` — no logic rewrite.
 
 ## Repo layout
-`config/` settings + env files · `src/` (ingestion, transform, rag, backends, common)
-· `infra/` Terraform · `infrastructure/localstack/` the local emulator ·
-`tests/` · `scripts/` · `.github/workflows/` CI/CD · `docs/`.
+`config/` settings + env files · `src/` (ingestion, transform, backends, common) ·
+**`rag/`** the standalone Stage-5 RAG project (`app/` FastAPI + services + repositories + llm,
+`ui/` Streamlit, `lambda_handler.py`, `tests/`) · `infra/` Terraform ·
+`infrastructure/localstack/` the local emulator · `tests/` · `scripts/` ·
+`.github/workflows/` CI/CD · `docs/`.
 
 ## Coding standards
 PEP 8 + type hints + docstrings; root-cause fixes; idempotency + check-before-create;
@@ -80,6 +82,38 @@ Configure real creds in `~/.aws` (profile or SSO — never in the repo). Set
 `APP_ENV=aws`. Claude writes Terraform and runs `terraform plan`; **you** run
 `terraform apply` after reviewing the plan (Section N). Cost guardrails + the
 teardown procedure: plan Section I.
+
+## RAG assistant (Stage 5) — local runbook
+The hybrid RAG lives in the standalone **`rag/`** project; DuckDB + FAISS-in-S3 (LocalStack) are
+local, and the LLM is whatever you configure. Full detail: [`docs/stages/stage-5-rag.md`](stages/stage-5-rag.md).
+
+**Prereqs (once):** the providers in `rag/config/llm.yaml` with their keys in `.env` — by default
+embeddings use **Gemini** (`GEMINI_API_KEY`) and generation uses **Ollama Cloud** (`OLLAMA_API_KEY`,
+Gemini fallback), so **both keys** are needed (Ollama Cloud has no embeddings API); or use a free
+local generator via `OLLAMA_HOST=http://localhost:11434` + `ollama serve`/`ollama pull`. Then
+LocalStack up + the stack applied; Gold populated (Stage 3
+batch + `dbt build`, and/or Stage 4 trades). Export `BRONZE_BUCKET`/`GOLD_BUCKET` from `terraform
+output` (and `AWS_ENDPOINT_URL` + `test`/`test` creds for LocalStack S3).
+
+```bash
+export APP_ENV=local                       # (defaults to local; export so child uv processes inherit it)
+uv run python -m rag.app.cli ingest        # RSS  -> bronze/docs/ (idempotent)
+uv run python -m rag.app.cli build-index   # embed -> gold/rag/local/{index.faiss,meta.json}
+uv run python -m rag.app.cli ask "What moved Bitcoin this week and by how much?"
+
+uv run uvicorn rag.app.main:app --reload   # API  on :8000 (GET /api/v1/health, POST /ask, /ask/stream)
+uv run streamlit run rag/ui/streamlit_app.py   # chat UI on :8501 (set RAG_API_URL if not localhost:8000)
+```
+**LLM provider** is config-driven (`rag/config/llm.yaml`): Ollama (Cloud by default; or local via
+`OLLAMA_HOST`) · Gemini · OpenAI · Anthropic · Groq · Bedrock, with separate embed vs generate
+providers and an optional **generation** fallback (embeddings have none — a different embedder is
+incompatible). Put API keys in `.env` (`OLLAMA_API_KEY`, `GEMINI_API_KEY`, …); switch the active
+provider via the YAML or `RAG_GEN_PROVIDER`/`RAG_EMBED_PROVIDER`. Changing the *embed* provider
+needs a `build-index` (the vector space changes).
+
+Swap S3/Athena to AWS with `APP_ENV=aws` — same code; the AWS Lambdas are gated behind `enable_rag`
+and deferred (Bedrock access + a faiss/numpy layer required). Other knobs: `RAG_FEED_URLS`,
+`RAG_CHUNK_SIZE`/`_OVERLAP`, `RAG_TOP_K`, `RAG_CORS_ORIGINS` (see `rag/app/core/config.py`).
 
 ## Idempotency design
 How re-runs stay safe (deterministic keys, date-partition overwrite, Iceberg
